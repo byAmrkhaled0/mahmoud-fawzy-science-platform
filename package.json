@@ -1,0 +1,13 @@
+{
+  "name": "mahmoud-fawzy-science-platform-v38-professional-ui",
+  "version": "38.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node local-server.js",
+    "preview": "node local-server.js",
+    "build": "node scripts/build.js"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

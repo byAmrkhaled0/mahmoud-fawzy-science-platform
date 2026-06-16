@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://mahmoud-fawzy-science-platform-jrpi.vercel.app/sitemap.xml

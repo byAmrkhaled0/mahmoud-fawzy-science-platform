@@ -1,0 +1,10 @@
+{
+  "name": "مستر محمود ابراهيم فوزي للعلوم",
+  "short_name": "محمود فوزي",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f8ff",
+  "theme_color": "#155eef",
+  "dir": "rtl",
+  "lang": "ar"
+}
