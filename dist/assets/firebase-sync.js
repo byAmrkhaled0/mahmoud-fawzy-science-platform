@@ -1,221 +1,303 @@
 (function(){
+  'use strict';
+
   const cfg = window.MF_FIREBASE_CONFIG || {};
-  if(!cfg.enabled){ window.MFCloud = { ready:false }; return; }
-  if(!window.firebase){ console.warn('Firebase SDK not loaded'); window.MFCloud = { ready:false }; return; }
+  if(!cfg.enabled || typeof firebase === 'undefined'){
+    window.MFCloud = { ready:false, error:'Firebase غير مفعل' };
+    return;
+  }
+
+  const cleanDocId = value => String(value || '').trim().replace(/[\\/#?\[\]]/g,'-');
+  const digits = value => String(value || '').replace(/\D/g,'');
+  const serverTime = () => firebase.firestore.FieldValue.serverTimestamp();
+
   try{
     const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(cfg);
     const auth = firebase.auth();
     const db = firebase.firestore();
     const storage = firebase.storage();
-
-    // Main backup document. It is inside settings because Firestore Rules allow admin write and public read.
     const siteDoc = db.collection('settings').doc('siteData');
 
-    function cleanDocId(value, fallback){
-      const raw = String(value || fallback || Date.now()).trim();
-      return raw.replace(/[\\/#?\[\]]/g,'-').slice(0,140) || String(Date.now());
+    function normalizedStudent(raw){
+      const s = raw || {};
+      const code = String(s.studentCode || s.code || s.id || '').trim();
+      return {
+        id: code,
+        code,
+        studentCode: code,
+        name: s.studentName || s.name || '',
+        studentName: s.studentName || s.name || '',
+        studentPhone: s.studentPhone || '',
+        parentPhone: s.parentPhone || '',
+        grade: s.grade || '',
+        month: s.month || '',
+        group: s.group || '',
+        paid: !!s.paid,
+        paymentDate: s.paymentDate || '',
+        notes: s.notes || '',
+        attendance: Array.isArray(s.attendance) ? s.attendance : [],
+        grades: Array.isArray(s.grades) ? s.grades : [],
+        homeworks: Array.isArray(s.homeworks) ? s.homeworks : [],
+        recitations: Array.isArray(s.recitations) ? s.recitations : []
+      };
     }
 
-    async function getRole(){
-      const user = auth.currentUser;
-      if(!user) return null;
-      try{
-        const snap = await db.collection('users').doc(user.uid).get();
-        return snap.exists ? snap.data() : null;
-      }catch(e){
-        console.warn('Unable to read user role', e);
-        return null;
-      }
+    function portalPayload(student, extra){
+      const s = normalizedStudent(student);
+      return {
+        studentId: s.id,
+        studentCode: s.studentCode,
+        code: s.studentCode,
+        studentName: s.studentName,
+        name: s.studentName,
+        parentPhoneDigits: digits(s.parentPhone),
+        grade: s.grade,
+        group: s.group,
+        month: s.month,
+        paid: s.paid,
+        paymentDate: s.paymentDate || '',
+        notes: s.notes || '',
+        attendance: s.attendance || [],
+        grades: s.grades || [],
+        homeworks: s.homeworks || [],
+        recitations: s.recitations || [],
+        ...(extra || {}),
+        updatedAt: serverTime()
+      };
     }
 
-    async function upload(file, basePath){
-      const cleanName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g,'-');
-      const path = `${basePath}/${Date.now()}-${cleanName}`;
+    async function upload(file, folder){
+      if(!file) throw new Error('No file selected');
+      const safeName = `${Date.now()}-${file.name}`.replace(/[\\/#?\[\]]/g,'-');
+      const path = `${folder || 'public/uploads'}/${safeName}`;
       const ref = storage.ref(path);
-      await ref.put(file, { contentType: file.type || undefined });
-      const url = await ref.getDownloadURL();
-      return { url, path, fileName:file.name, contentType:file.type || '', size:file.size || 0 };
+      await ref.put(file, { contentType:file.type || 'application/octet-stream' });
+      return { url: await ref.getDownloadURL(), path, fileName:file.name, size:file.size, contentType:file.type };
     }
 
-    async function batchSetCollection(batch, collection, items, idGetter, extraGetter){
-      (items || []).forEach((item, index)=>{
-        const id = cleanDocId(idGetter(item, index), `${collection}-${index}`);
-        const ref = db.collection(collection).doc(id);
-        batch.set(ref, {
-          ...item,
-          ...(extraGetter ? extraGetter(item, index) : {}),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge:true });
-      });
+    async function mirrorStudent(student, batch){
+      const s = normalizedStudent(student);
+      if(!s.studentCode) return;
+      const id = cleanDocId(s.studentCode);
+      const studentRef = db.collection('students').doc(id);
+      const studentData = { ...s, updatedAt:serverTime() };
+      delete studentData.id;
+      batch.set(studentRef, studentData, { merge:true });
+      batch.set(db.collection('student_portal').doc(id), portalPayload(s), { merge:true });
+      const parentId = cleanDocId(`${s.studentCode}_${digits(s.parentPhone)}`);
+      if(digits(s.parentPhone)) batch.set(db.collection('parent_portal').doc(parentId), portalPayload(s), { merge:true });
+      batch.set(db.collection('payments').doc(id), {
+        studentId:id, studentCode:s.studentCode, studentName:s.studentName, grade:s.grade, group:s.group,
+        paid:s.paid, paymentDate:s.paymentDate || '', updatedAt:serverTime()
+      }, { merge:true });
     }
 
     async function mirrorPayloadToCollections(payload){
-      const user = auth.currentUser;
-      if(!user) return;
-      const role = await getRole();
-      if(!role || !['admin','assistant'].includes(role.role)) return;
-
+      const data = payload || {};
       const batch = db.batch();
-
-      await batchSetCollection(batch, 'students', payload.students, s=>s.code, s=>({
-        studentCode: s.code,
-        paid: !!s.paid,
-        paymentStatus: s.paid ? 'تم الدفع' : 'لم يدفع'
-      }));
-
-      await batchSetCollection(batch, 'bookings', payload.bookings, b=>b.code || b.id);
-      await batchSetCollection(batch, 'materials', payload.materials, m=>m.id);
-      await batchSetCollection(batch, 'questions', payload.questions, q=>q.id);
-      await batchSetCollection(batch, 'exams', payload.exams, e=>e.id);
-      await batchSetCollection(batch, 'reviews', payload.reviews, r=>r.id);
-      await batchSetCollection(batch, 'exam_attempts', payload.examAttempts, a=>`${a.studentCode || 'student'}-${a.examId || a.examTitle || 'exam'}-${a.date || Date.now()}`);
-      await batchSetCollection(batch, 'groups', payload.groups, g=>g.id || g.name);
-      await batchSetCollection(batch, 'assignments', payload.assignments, a=>a.id || a.title);
-
-      // Flatten student attendance, grades, payments and homework so they appear as real Firestore collections.
-      (payload.students || []).forEach(st=>{
-        (st.attendance || []).forEach((a, i)=>{
-          const ref = db.collection('attendance').doc(cleanDocId(`${st.code}-${a.date || i}`));
-          batch.set(ref, {
-            studentCode: st.code,
-            studentName: st.name,
-            grade: st.grade,
-            date: a.date || '',
-            status: a.status || '',
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge:true });
-        });
-        (st.grades || []).forEach((g, i)=>{
-          const ref = db.collection('grades').doc(cleanDocId(`${st.code}-${g.exam || i}`));
-          batch.set(ref, {
-            studentCode: st.code,
-            studentName: st.name,
-            grade: st.grade,
-            exam: g.exam || '',
-            score: g.score ?? null,
-            type: g.type || '',
-            date: g.date || '',
-            status: g.status || '',
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge:true });
-        });
-        const payRef = db.collection('payments').doc(cleanDocId(st.code));
-        batch.set(payRef, {
-          studentCode: st.code,
-          studentName: st.name,
-          grade: st.grade,
-          month: st.month || '',
-          paid: !!st.paid,
-          status: st.paid ? 'تم الدفع' : 'لم يدفع',
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge:true });
-        (st.homeworks || []).forEach((h, i)=>{
-          const ref = db.collection('homework_submissions').doc(cleanDocId(`${st.code}-${h.title || i}`));
-          batch.set(ref, {
-            studentCode: st.code,
-            studentName: st.name,
-            grade: st.grade,
-            title: h.title || '',
-            status: h.status || '',
-            fileName: h.fileName || '',
-            fileUrl: h.fileUrl || h.fileData || '',
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge:true });
-        });
-        (st.recitations || []).forEach((r, i)=>{
-          const ref = db.collection('recitations').doc(cleanDocId(`${st.code}-${r.date || i}-${r.lesson || 'lesson'}`));
-          batch.set(ref, {
-            studentCode: st.code,
-            studentName: st.name,
-            grade: st.grade,
-            lesson: r.lesson || '',
-            date: r.date || '',
-            status: r.status || '',
-            attendanceStatus: r.attendanceStatus || '',
-            note: r.note || '',
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge:true });
-        });
+      (data.students || []).forEach(st => mirrorStudent(st, batch));
+      (data.bookings || []).forEach(b=>{
+        const id = cleanDocId(b.code || b.id || `${Date.now()}`);
+        batch.set(db.collection('bookings').doc(id), { ...b, id:b.id || id, code:b.code || id, updatedAt:serverTime() }, { merge:true });
       });
-
+      (data.materials || []).forEach(m=>{
+        const id = cleanDocId(m.id || m.title || `${Date.now()}`);
+        batch.set(db.collection('materials').doc(id), { ...m, id, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.questions || []).forEach(q=>{
+        const id = cleanDocId(q.id || q.title || `${Date.now()}`);
+        batch.set(db.collection('questions').doc(id), { ...q, id, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.exams || []).forEach(e=>{
+        const id = cleanDocId(e.id || e.title || `${Date.now()}`);
+        batch.set(db.collection('exams').doc(id), { ...e, id, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.reviews || []).forEach(r=>{
+        const id = cleanDocId(r.id || `${Date.now()}-${r.name || 'review'}`);
+        batch.set(db.collection('reviews').doc(id), { ...r, id, approved:r.approved !== false, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.groups || []).forEach(g=>{
+        const id = cleanDocId(g.id || g.name || `${Date.now()}`);
+        batch.set(db.collection('groups').doc(id), { ...g, id, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.assignments || []).forEach(a=>{
+        const id = cleanDocId(a.id || a.title || `${Date.now()}`);
+        batch.set(db.collection('assignments').doc(id), { ...a, id, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.grades || []).forEach(g=>{
+        const id = cleanDocId(g.id || `${g.studentCode || g.code || 'student'}_${g.exam || g.examTitle || 'exam'}_${g.date || Date.now()}`);
+        batch.set(db.collection('grades').doc(id), { ...g, id, updatedAt:serverTime() }, { merge:true });
+      });
+      (data.examAttempts || []).forEach(a=>{
+        const id = cleanDocId(a.id || `${a.examId || 'exam'}_${a.studentCode || 'student'}`);
+        batch.set(db.collection('exam_attempts').doc(id), { ...a, id, updatedAt:serverTime() }, { merge:true });
+        if(a.studentCode){
+          batch.set(db.collection('student_attempts').doc(cleanDocId(a.studentCode)), {
+            studentCode:a.studentCode, attempts: firebase.firestore.FieldValue.arrayUnion({ ...a, id }), updatedAt:serverTime()
+          }, { merge:true });
+        }
+      });
       await batch.commit();
     }
 
+    async function getDocs(collection, limit){
+      const ref = limit ? db.collection(collection).limit(limit) : db.collection(collection);
+      const snap = await ref.get();
+      return snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    }
+
     async function loadFromCollections(){
-      const [students, bookings, materials, questions, exams, reviews, groups, assignments] = await Promise.all([
-        db.collection('students').get().catch(()=>null),
-        db.collection('bookings').get().catch(()=>null),
-        db.collection('materials').get().catch(()=>null),
-        db.collection('questions').get().catch(()=>null),
-        db.collection('exams').get().catch(()=>null),
-        db.collection('reviews').get().catch(()=>null),
-        db.collection('groups').get().catch(()=>null),
-        db.collection('assignments').get().catch(()=>null)
+      const [students, bookings, materials, questions, exams, reviews, groups, assignments, attempts, grades] = await Promise.all([
+        getDocs('students').catch(()=>[]),
+        getDocs('bookings').catch(()=>[]),
+        getDocs('materials').catch(()=>[]),
+        getDocs('questions').catch(()=>[]),
+        getDocs('exams').catch(()=>[]),
+        getDocs('reviews').catch(()=>[]),
+        getDocs('groups').catch(()=>[]),
+        getDocs('assignments').catch(()=>[]),
+        getDocs('exam_attempts', 500).catch(()=>[]),
+        getDocs('grades', 500).catch(()=>[])
       ]);
-      const toArr = snap => snap ? snap.docs.map(d=>({id:d.id, ...d.data()})) : [];
-      const data = {
-        students: toArr(students).map(s=>({code:s.code || s.studentCode || s.id, ...s})),
-        bookings: toArr(bookings),
-        materials: toArr(materials),
-        questions: toArr(questions),
-        exams: toArr(exams),
-        reviews: toArr(reviews),
-        groups: toArr(groups),
-        assignments: toArr(assignments)
+      const normalizedStudents = students.map(normalizedStudent);
+      (grades || []).forEach(g=>{
+        const code = String(g.studentCode || g.code || '').trim();
+        const st = normalizedStudents.find(s=>String(s.studentCode).trim()===code);
+        if(st) st.grades = [...(st.grades || []), g];
+      });
+      return {
+        students: normalizedStudents,
+        bookings, materials, questions, exams, reviews, groups, assignments, examAttempts:attempts, grades
       };
-      return (data.students.length || data.bookings.length || data.materials.length || data.questions.length || data.exams.length || data.reviews.length || data.groups.length || data.assignments.length) ? data : null;
+    }
+
+    async function getCurrentStaffProfile(){
+      const user = auth.currentUser;
+      if(!user) return null;
+      const userDoc = await db.collection('users').doc(user.uid).get();
+      const profile = userDoc.exists ? userDoc.data() : {};
+      const role = profile.role || '';
+      const allowed = ['admin','teacher','assistant'].includes(role) && profile.active !== false;
+      return { uid:user.uid, email:user.email, role, allowed, ...profile };
+    }
+
+    async function upsertAttendance(record){
+      const docId = cleanDocId(`${record.studentId || record.studentCode}_${record.date}`);
+      const payload = { ...record, id:docId, updatedAt:serverTime() };
+      await db.collection('attendance').doc(docId).set(payload, { merge:true });
+      return { id:docId, ...payload };
+    }
+
+    async function getAttendanceForDate(date, grade, group){
+      let q = db.collection('attendance').where('date','==',date);
+      if(grade && grade !== 'all') q = q.where('grade','==',grade);
+      if(group && group !== 'all') q = q.where('group','==',group);
+      const snap = await q.get();
+      return snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    }
+
+    async function attemptsForStudent(code){
+      const id = cleanDocId(code);
+      const snap = await db.collection('student_attempts').doc(id).get().catch(()=>null);
+      return snap && snap.exists && Array.isArray(snap.data().attempts) ? snap.data().attempts : [];
+    }
+
+    async function getStudentByCode(code){
+      const id = cleanDocId(code);
+      if(!id) return null;
+      const snap = await db.collection('student_portal').doc(id).get();
+      if(!snap.exists) return null;
+      const st = normalizedStudent({ id:snap.id, ...snap.data() });
+      st.examAttempts = await attemptsForStudent(st.studentCode);
+      return st;
+    }
+
+    async function getParentStudent(code){
+      const id = cleanDocId(code);
+      if(!id) return null;
+      // دخول ولي الأمر بالكود فقط: نستخدم نفس بيانات بوابة الطالب، بدون رقم هاتف.
+      const snap = await db.collection('student_portal').doc(id).get();
+      if(!snap.exists) return null;
+      const st = normalizedStudent({ id:snap.id, ...snap.data() });
+      st.examAttempts = await attemptsForStudent(st.studentCode);
+      return st;
     }
 
     window.MFCloud = {
-      ready:true,
-      app, auth, db, storage,
+      ready:true, app, auth, db, storage, cleanDocId, normalizePhoneDigits:digits,
       currentUser:()=>auth.currentUser,
       signIn:(email,password)=>auth.signInWithEmailAndPassword(email,password),
-      signUp:(email,password)=>auth.createUserWithEmailAndPassword(email,password),
       signOut:()=>auth.signOut(),
+      getCurrentStaffProfile,
       loadSiteData: async()=>{
-        const snap = await siteDoc.get();
-        if(snap.exists && snap.data().payload) return snap.data().payload;
-        return await loadFromCollections();
+        const site = await siteDoc.get().catch(()=>null);
+        const fromCollections = await loadFromCollections().catch(()=>null);
+        if(fromCollections && Object.values(fromCollections).some(v=>Array.isArray(v) && v.length)) return fromCollections;
+        if(site && site.exists && site.data().payload) return site.data().payload;
+        return fromCollections || null;
       },
       saveSiteData: async(payload)=>{
-        await siteDoc.set({payload, updatedAt: firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await siteDoc.set({ payload, updatedAt:serverTime() }, { merge:true });
         await mirrorPayloadToCollections(payload);
       },
-      createBooking: async(booking)=>{
-        const id = cleanDocId(booking.code || booking.id);
-        await db.collection('bookings').doc(id).set({
-          ...booking,
-          id: booking.id || id,
-          code: booking.code || id,
-          status: booking.status || 'حجز جديد',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge:true });
+      saveStudent: async(student)=>{
+        const batch = db.batch();
+        await mirrorStudent(student, batch);
+        await batch.commit();
       },
-      syncCollections: mirrorPayloadToCollections,
-      uploadHomework: async(file,studentCode)=>{
-        const up = await upload(file,`homework/${studentCode}`);
-        try{
-          await db.collection('homework_submissions').add({
-            studentCode,
-            fileName: up.fileName,
-            fileUrl: up.url,
-            filePath: up.path,
-            contentType: up.contentType,
-            size: up.size,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        }catch(e){ console.warn('Homework submission mirror failed', e); }
+      createBooking: async(booking)=>{
+        const raw = booking || {};
+        const code = String(raw.code || raw.studentCode || raw.id || `ST-${Date.now()}`).trim();
+        const id = cleanDocId(code);
+        const payload = {
+          ...raw,
+          id,
+          code,
+          studentCode: code,
+          name: raw.name || raw.studentName || '',
+          studentName: raw.studentName || raw.name || '',
+          studentPhone: raw.studentPhone || '',
+          parentPhone: raw.parentPhone || '',
+          grade: raw.grade || '',
+          month: raw.month || '',
+          group: raw.group || '',
+          notes: raw.notes || '',
+          status: raw.status || 'بانتظار الموافقة',
+          date: raw.date || new Date().toISOString().slice(0,10),
+          createdAt: serverTime(),
+          updatedAt: serverTime()
+        };
+        await db.collection('bookings').doc(id).set(payload, { merge:true });
+        return payload;
+      },
+      saveReview: async(review)=>{
+        const id = cleanDocId(review.id || `${Date.now()}-${review.name || 'review'}`);
+        await db.collection('reviews').doc(id).set({ ...review, id, approved:false, createdAt:serverTime() }, { merge:true });
+      },
+      saveExamAttempt: async(attempt)=>{
+        const id = cleanDocId(attempt.id || `${attempt.examId}_${attempt.studentCode}`);
+        const payload = { ...attempt, id, updatedAt:serverTime() };
+        await db.collection('exam_attempts').doc(id).set(payload, { merge:true });
+        if(attempt.studentCode){
+          await db.collection('student_attempts').doc(cleanDocId(attempt.studentCode)).set({
+            studentCode:attempt.studentCode, attempts: firebase.firestore.FieldValue.arrayUnion({ ...attempt, id }), updatedAt:serverTime()
+          }, { merge:true });
+        }
+      },
+      upsertAttendance,
+      getAttendanceForDate,
+      getStudentByCode,
+      getParentStudent,
+      uploadHomework: async(file, studentCode)=>{
+        const up = await upload(file, `homework/${cleanDocId(studentCode)}`);
+        await db.collection('homework_submissions').add({ studentCode, ...up, createdAt:serverTime() }).catch(()=>{});
         return up;
       },
-      uploadAttachment:(file,folder)=>upload(file,folder||'public/uploads'),
+      uploadAttachment:(file, folder)=>upload(file, folder || 'teacher-uploads'),
       deleteDocument: async(collection,id)=>{
-        if(!collection || !id) return;
-        await db.collection(collection).doc(cleanDocId(id)).delete();
+        if(collection && id) await db.collection(collection).doc(cleanDocId(id)).delete();
       },
-      deleteWhere: async(collection,field,value)=>{
-        if(!collection || !field || value===undefined || value===null) return;
+      deleteWhere: async(collection, field, value)=>{
         const snap = await db.collection(collection).where(field,'==',value).get();
         if(snap.empty) return;
         const batch = db.batch();
@@ -223,9 +305,7 @@
         await batch.commit();
       }
     };
-    console.info('Firebase connected with real Firestore collections: mahmoud-fawzy-science-platform');
   }catch(err){
-    console.warn('Firebase init failed',err);
-    window.MFCloud = { ready:false, error: err };
+    window.MFCloud = { ready:false, error:err };
   }
 })();

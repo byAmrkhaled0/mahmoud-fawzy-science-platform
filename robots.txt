@@ -1,3 +1,4 @@
 User-agent: *
 Allow: /
-Sitemap: https://mahmoud-fawzy-science-platform-jrpi.vercel.app/sitemap.xml
+Disallow: /teacher-login.html
+Sitemap: https://mahmoud-fawzy-science-platform.vercel.app/sitemap.xml

@@ -31,12 +31,13 @@
 <div>
 <span class="kicker"><span data-icon="users"></span> صفحة ولي الأمر</span>
 <h1>تقرير الطالب كامل في مكان واحد</h1>
-<p>اكتب كود الطالب أو رقم ولي الأمر لعرض تقرير واضح ومنظم عن الحضور، التسميع، الدرجات، الواجبات، الدفع، وملاحظات المدرس.</p>
+<p>اكتب كود الطالب أو امسح QR الخاص بابنك لعرض تقرير شهري واضح ومنظم مناسب للموبايل ويمكن مشاركته على واتساب.</p>
 </div>
 <form class="card parent-search-v29" id="parentSearchForm">
-<div class="field"><label>كود الطالب أو رقم ولي الأمر</label><input name="query" placeholder="مثال: MF-SCI-1001" required=""/></div>
+<div class="field"><label>كود الطالب</label><input name="studentCode" placeholder="مثال: ST-1025" autocomplete="off" required=""/></div>
 <button class="btn primary" type="submit"><span data-icon="file-text"></span> عرض تقرير الطالب</button>
-<p>البيانات لا تظهر إلا بالكود، ولا توجد أي قوائم طلاب عامة.</p>
+<button class="btn ghost parent-scan-btn-v38" type="button" onclick="openParentQrScanner()"><span data-icon="qr"></span> مسح QR الطالب</button>
+<p>يمكن الدخول بالكود يدويًا أو بمسح QR الموجود مع الطالب.</p>
 </form>
 </div>
 </section>
@@ -45,7 +46,7 @@
 <div class="card result-box parent-result-v29" id="parentResult">
 <div class="empty-state compact-empty-v29">
 <span class="iconbox" data-icon="file-text"></span>
-<h3>اكتب الكود لعرض التقرير</h3>
+<h3>اكتب كود الطالب لعرض التقرير</h3>
 <p>سيظهر تقرير ولي الأمر هنا بشكل كامل ومنظم.</p>
 </div>
 </div>
@@ -69,11 +70,26 @@
 <a href="parent.html"><span data-icon="users"></span><span>ولي الأمر</span></a>
 <a href="exams.html"><span data-icon="clipboard"></span><span>امتحان</span></a>
 </nav>
+
+<div id="parentQrModal" class="qr-modal parent-qr-modal-v38" hidden>
+  <div class="card qr-modal-card parent-qr-card-v38">
+    <div class="profile-top">
+      <div>
+        <h3>مسح QR الطالب</h3>
+        <p class="section-desc">وجّه كاميرا الموبايل على QR الخاص بالطالب لفتح تقرير ولي الأمر.</p>
+      </div>
+      <button class="small-btn danger" type="button" onclick="closeParentQrScanner()">إغلاق</button>
+    </div>
+    <div id="parentQrReader" class="parent-qr-reader-v38"></div>
+    <p class="section-desc">لو الكاميرا لم تعمل، استخدم إدخال الكود اليدوي بالأعلى.</p>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+<script src="https://unpkg.com/html5-qrcode" defer></script>
 <script src="assets/firebase-config.js"></script>
 <script src="assets/firebase-sync.js"></script>
 <script src="assets/app.js"></script>
