@@ -11,8 +11,10 @@ setGlobalOptions({ region: 'europe-west1', maxInstances: 10, memory: '256MiB' })
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 const Timestamp = admin.firestore.Timestamp;
-const ENFORCE_APP_CHECK = String(process.env.ENFORCE_APP_CHECK || 'false').toLowerCase() === 'true';
-const CALLABLE_OPTIONS = { region: 'europe-west1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 30 };
+const CALLABLE_OPTIONS = {
+  region: 'europe-west1',
+  timeoutSeconds: 30
+};
 
 function cleanDocId(value) {
   return String(value || '').trim().replace(/[\\/#?\[\]]/g, '-');

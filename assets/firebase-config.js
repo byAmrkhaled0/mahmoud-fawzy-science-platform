@@ -1,7 +1,10 @@
 // Firebase configuration for Mahmoud Fawzy Science Platform.
-// Firebase web keys are public identifiers; security depends on Rules, App Check and Cloud Functions.
+// Firebase web config values are public identifiers.
+// Security depends on Authentication, Firestore Rules and Cloud Functions.
+
 window.MF_FIREBASE_CONFIG = {
   enabled: true,
+
   apiKey: "AIzaSyANU2fln6kuYCtdm1WRMtG-AD5pUwV9a4g",
   authDomain: "mahmoud-fawzy-science-platform.firebaseapp.com",
   projectId: "mahmoud-fawzy-science-platform",
@@ -10,14 +13,6 @@ window.MF_FIREBASE_CONFIG = {
   appId: "1:805108517684:web:68c0cb7e506a583e3a7361",
   measurementId: "G-V5MR9BGCJQ",
 
-  // Cloud Functions location used by the secure student portal and exam flow.
   functionsRegion: "europe-west1",
-  useSecureFunctions: true,
-
-  // ضع هنا reCAPTCHA v3 Site Key بعد تفعيل Firebase App Check.
-  // اتركه فارغًا أثناء التجهيز المحلي فقط.
-  appCheckSiteKey: "",
-
-  // اختياري للاختبار المحلي فقط. لا ترفع Debug Token إلى GitHub أو الإنتاج.
-  appCheckDebugToken: ""
+  useSecureFunctions: true
 };

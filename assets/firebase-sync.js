@@ -20,16 +20,6 @@
     const functions = typeof app.functions === 'function' ? app.functions(cfg.functionsRegion || 'europe-west1') : null;
     const siteDoc = db.collection('settings').doc('siteData');
 
-    if(cfg.appCheckSiteKey && typeof firebase.appCheck === 'function'){
-      try{
-        if(cfg.appCheckDebugToken && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
-          self.FIREBASE_APPCHECK_DEBUG_TOKEN = cfg.appCheckDebugToken;
-        }
-        firebase.appCheck().activate(cfg.appCheckSiteKey, true);
-      }catch(error){
-        console.warn('App Check initialization skipped:', error);
-      }
-    }
 
     const callable = name => {
       if(!functions) return null;
