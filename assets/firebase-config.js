@@ -16,7 +16,7 @@ window.MF_FIREBASE_CONFIG = {
 
   // ضع هنا reCAPTCHA v3 Site Key بعد تفعيل Firebase App Check.
   // اتركه فارغًا أثناء التجهيز المحلي فقط.
-  appCheckSiteKey: "",
+  appCheckSiteKey: "6LeYo1AtAAAAAJDMJAIduUWNn-2JoDYNaNm24VSx",
 
   // اختياري للاختبار المحلي فقط. لا ترفع Debug Token إلى GitHub أو الإنتاج.
   appCheckDebugToken: ""
