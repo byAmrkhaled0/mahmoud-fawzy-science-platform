@@ -8,8 +8,9 @@
   }
 
   const cleanDocId=value=>String(value||'').trim().replace(/[\\/#?\[\]]/g,'-');
-  const digits=value=>String(value||'').replace(/\D/g,'');
-  const normalizeCode=value=>String(value||'').trim().toUpperCase().replace(/\s+/g,'');
+  const normalizeDigits=value=>String(value||'').replace(/[٠-٩]/g,digit=>String(digit.charCodeAt(0)-1632)).replace(/[۰-۹]/g,digit=>String(digit.charCodeAt(0)-1776));
+  const digits=value=>normalizeDigits(value).replace(/\D/g,'');
+  const normalizeCode=value=>normalizeDigits(value).trim().toUpperCase().replace(/\s+/g,'');
   const serverTime=()=>firebase.firestore.FieldValue.serverTimestamp();
   const nowIso=()=>new Date().toISOString();
 
@@ -34,6 +35,7 @@
     const calls={
       getPortalStudent:callable('getPortalStudent'),
       createBooking:callable('createBooking'),
+      approveBooking:callable('approveBooking'),
       getBookingStatus:callable('getBookingStatus'),
       createReview:callable('createReview'),
       getExamDashboard:callable('getExamDashboard'),
@@ -64,7 +66,7 @@
       return {
         ...s,id:code,code,studentCode:code,parentCode:normalizeCode(s.parentCode||''),
         name:s.studentName||s.name||'',studentName:s.studentName||s.name||'',
-        studentPhone:s.studentPhone||'',parentPhone:s.parentPhone||'',grade:s.grade||'',month:s.month||'',group:s.group||'',
+        studentPhone:digits(s.studentPhone),parentPhone:digits(s.parentPhone),grade:s.grade||'',month:s.month||'',group:s.group||'',
         academicYear:s.academicYear||'',term:s.term||'',paid:s.paid===true,paymentDate:s.paymentDate||'',notes:s.notes||'',active:s.active!==false,
         attendance:Array.isArray(s.attendance)?s.attendance:[],grades:Array.isArray(s.grades)?s.grades:[],
         homeworks:Array.isArray(s.homeworks)?s.homeworks:[],recitations:Array.isArray(s.recitations)?s.recitations:[]
@@ -179,7 +181,7 @@
           ops.push(batch=>batch.set(parent.collection('attempts').doc(id),summary,{merge:true}));
         }
       });
-      ops.push(batch=>batch.set(platformSettingsDoc,{...(data.settings||{}),schemaVersion:53,updatedAt:serverTime()},{merge:true}));
+      ops.push(batch=>batch.set(platformSettingsDoc,{...(data.settings||{}),schemaVersion:54,updatedAt:serverTime()},{merge:true}));
       await commitOperations(ops);
     }
 
@@ -290,6 +292,10 @@
         if(!calls.createBooking)throw new Error('Secure booking function is unavailable');
         return calls.createBooking(booking);
       },
+      approveBooking:async code=>{
+        if(!calls.approveBooking)throw new Error('Secure booking approval function is unavailable');
+        return calls.approveBooking({code:normalizeCode(code)});
+      },
       getBookingStatus:async code=>{
         const normalized=normalizeCode(code);
         if(calls.getBookingStatus){try{return await calls.getBookingStatus({code:normalized});}catch(error){
@@ -339,7 +345,7 @@
       createBackupNow:()=>{if(!calls.createBackupNow)throw new Error('Backup function unavailable');return calls.createBackupNow({});},
       listAutomaticBackups:()=>{if(!calls.listAutomaticBackups)throw new Error('Backup function unavailable');return calls.listAutomaticBackups({});},
       getBackupDownloadUrl:name=>{if(!calls.getBackupDownloadUrl)throw new Error('Backup function unavailable');return calls.getBackupDownloadUrl({name});},
-      restoreAutomaticBackup:name=>{if(!calls.restoreAutomaticBackup)throw new Error('Restore function unavailable');return calls.restoreAutomaticBackup({name,confirmation:'RESTORE-V53'});},
+      restoreAutomaticBackup:name=>{if(!calls.restoreAutomaticBackup)throw new Error('Restore function unavailable');return calls.restoreAutomaticBackup({name,confirmation:'RESTORE-V54'});},
       deleteWhere
     };
   }catch(error){console.error(error);window.MFCloud={ready:false,error};}

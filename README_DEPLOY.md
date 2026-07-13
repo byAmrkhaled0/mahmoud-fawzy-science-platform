@@ -1,4 +1,4 @@
-# Deploy Secure Mobile V43
+# نشر الإصدار 54
 
 ## Vercel
 
@@ -9,11 +9,12 @@
 
 ## Firebase backend
 
-راجع `FIREBASE_SETUP_V43.md` ثم نفذ:
+نفّذ بالترتيب من مجلد المشروع:
 
 ```powershell
-firebase deploy --only firestore:rules,firestore:indexes,storage
 firebase deploy --only functions
+firebase deploy --only firestore:rules,firestore:indexes,storage
+firebase deploy --only hosting
 ```
 
 صفحة المدرس الخاصة:
@@ -21,3 +22,11 @@ firebase deploy --only functions
 ```text
 /teacher-login.html
 ```
+
+يمكن أيضًا تنفيذ كل الاختبارات والنشر بالأمر:
+
+```powershell
+npm run firebase:deploy:all
+```
+
+راجع `UPGRADE_V54_AR.md` للاختبار بعد النشر.

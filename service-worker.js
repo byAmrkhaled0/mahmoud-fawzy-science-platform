@@ -1,10 +1,10 @@
-const CACHE_NAME = "mf-science-v62-production";
+const CACHE_NAME = "mf-science-v54-production";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
   "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/app.js", "/assets/admin.js",
   "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/logo-icon.svg",
-  "/assets/icon-192.png", "/assets/icon-512.png", "/assets/icon-maskable-512.png", "/assets/teacher.webp", "/site.webmanifest"
+  "/assets/icon-192.png", "/assets/icon-512.png", "/assets/icon-maskable-512.png", "/assets/teacher.webp", "/site.webmanifest", "/teacher.webmanifest"
 ];
 
 self.addEventListener("install", event => {

@@ -1,6 +1,6 @@
-param(
+﻿param(
   [string]$RepositoryUrl = "https://github.com/byAmrkhaled0/mahmoud-fawzy-science-platform.git",
-  [string]$TargetFolder = "mahmoud-fawzy-production-v51"
+  [string]$TargetFolder = "mahmoud-fawzy-production-v54"
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +13,7 @@ function Invoke-Checked {
 
   & $Command @Arguments
   if ($LASTEXITCODE -ne 0) {
-    throw "Command failed with exit code $LASTEXITCODE: $Command $($Arguments -join ' ')"
+    throw "Command failed with exit code ${LASTEXITCODE}: $Command $($Arguments -join ' ')"
   }
 }
 
@@ -28,7 +28,7 @@ if (Test-Path $TargetRoot) {
 Write-Host "Cloning the existing GitHub repository..." -ForegroundColor Cyan
 Invoke-Checked git clone $RepositoryUrl $TargetRoot
 
-Write-Host "Replacing repository files with V51 while preserving .git..." -ForegroundColor Cyan
+Write-Host "Replacing repository files with V54 while preserving .git..." -ForegroundColor Cyan
 Get-ChildItem -LiteralPath $TargetRoot -Force |
   Where-Object { $_.Name -ne ".git" } |
   Remove-Item -Recurse -Force
@@ -40,3 +40,4 @@ Get-ChildItem -LiteralPath $SourceRoot -Force |
 Write-Host "Prepared Git folder:" -ForegroundColor Green
 Write-Host $TargetRoot -ForegroundColor Green
 Write-Host "Open that folder and run: npm run deploy:production" -ForegroundColor Yellow
+

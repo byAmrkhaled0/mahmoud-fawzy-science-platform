@@ -10,7 +10,7 @@ const requiredFiles = [
   'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js',
   'assets/firebase-sync.js', 'assets/firebase-config.js', 'assets/icon-maskable-512.png',
   'firestore.rules', 'storage.rules', 'firestore.indexes.json', 'firebase.json',
-  'functions/index.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'offline.html'
+  'functions/index.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html'
 ];
 
 const failures = [];
@@ -34,7 +34,7 @@ for (const relative of jsFiles) {
 }
 if (!failures.some(x => x.startsWith('JavaScript syntax'))) ok('JavaScript syntax checks passed');
 
-const jsonFiles = ['package.json', 'package-lock.json', 'firebase.json', 'firestore.indexes.json', 'site.webmanifest', 'vercel.json', 'functions/package.json'];
+const jsonFiles = ['package.json', 'package-lock.json', 'firebase.json', 'firestore.indexes.json', 'site.webmanifest', 'teacher.webmanifest', 'vercel.json', 'functions/package.json'];
 for (const relative of jsonFiles) {
   try { JSON.parse(read(relative)); }
   catch (error) { fail(`Invalid JSON: ${relative} (${error.message})`); }
@@ -77,12 +77,12 @@ if (!syncSource.includes("doc('platform')") || syncSource.includes("legacySiteDo
   fail('Collection-backed settings migration is incomplete');
 }
 if (!failures.some(x => x.includes('public direct-write') || x.includes('Cloud Function enforcement') || x.includes('settings migration'))) {
-  ok('Public forms use secure Cloud Functions and v53 collection storage');
+  ok('Public forms use secure Cloud Functions and v54 collection storage');
 }
 
 const functionsSource = read('functions/index.js');
 const callableNames = [
-  'getPortalStudent', 'createStudentAccess', 'createBooking', 'getBookingStatus', 'createReview',
+  'getPortalStudent', 'createStudentAccess', 'createBooking', 'approveBooking', 'getBookingStatus', 'createReview',
   'getExamDashboard', 'startExam', 'submitExam', 'registerHomeworkSubmission', 'reportClientError',
   'createBackupNow', 'listAutomaticBackups', 'getBackupDownloadUrl', 'restoreAutomaticBackup', 'deleteStudentSafely'
 ];
@@ -112,7 +112,7 @@ const manifest = JSON.parse(read('site.webmanifest'));
 if (manifest.display !== 'standalone' || manifest.scope !== '/' || !Array.isArray(manifest.icons)) fail('PWA manifest is incomplete');
 if (!manifest.icons.some(icon => String(icon.purpose || '').includes('maskable') && icon.sizes === '512x512')) fail('Maskable PWA icon is missing');
 const sw = read('service-worker.js');
-if (!/mf-science-v\d+-production/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png')) fail('Service worker app shell is incomplete');
+if (!/mf-science-v\d+-production/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png') || !sw.includes('/teacher.webmanifest')) fail('Service worker app shell is incomplete');
 const upgrade = read('assets/v53-upgrades.js');
 if (!upgrade.includes('beforeinstallprompt') || !upgrade.includes('إضافة إلى الشاشة الرئيسية') || !upgrade.includes('navigator.standalone')) fail('Mobile install handling is incomplete');
 if (!read('assets/app.js').includes('renderBookingScheduleOptions') || !read('index.html').includes('bookingScheduleId')) fail('Booking schedule linkage is incomplete');
@@ -120,15 +120,18 @@ if (!read('index.html').includes('bookingGroupSearch') || !read('assets/app.js')
 if (!read('assets/firebase-sync.js').includes('saveGroup:async group') || !upgrade.includes('MFCloud?.saveGroup')) fail('Focused group persistence is incomplete');
 if (!read('functions/index.js').includes("db.collection('groups').doc(selectedScheduleId).get()") || !read('functions/index.js').includes("where('name', '==', requestedGroup)") || !read('functions/index.js').includes('scheduleStartTime')) fail('Secure booking schedule validation is incomplete');
 if (!read('functions/index.js').includes("invoker: 'public'")) fail('Callable browser/CORS invoker configuration is missing');
+if (read('assets/app.js').includes('رقم ولي الأمر لازم يكون مختلف') || read('functions/index.js').includes('studentPhone === parentPhone')) fail('Same-number parent/student booking is still blocked');
+if (!read('assets/app.js').includes('toEnglishDigits') || !read('functions/index.js').includes('normalizeDigits')) fail('Arabic and English digit normalization is incomplete');
+if (!read('assets/admin.js').includes('MFCloud?.approveBooking') || !read('functions/index.js').includes('tx.delete(bookingRef)')) fail('Atomic booking approval and queue removal are incomplete');
 if (/مجموعة السبت والثلاثاء|مجموعة الأحد والأربعاء|مجموعة الاثنين والخميس|أونلاين متابعة/.test(read('index.html'))) fail('Static booking groups must not appear in the booking form');
 if (!failures.some(x => x.includes('PWA') || x.includes('Service worker') || x.includes('Mobile install'))) ok('Android and iPhone PWA installation checks passed');
 
 const adminSource = read('assets/admin.js') + '\n' + upgrade;
-for (const feature of ['importStudentsFile', 'exportStudentsCSV', 'exportAttendanceCSV', 'exportGradesCSV', 'academicYear', 'openAt', 'closeAt', 'renderClientErrors']) {
-  if (!adminSource.includes(feature)) fail(`Admin v53 feature is missing: ${feature}`);
+for (const feature of ['importStudentsFile', 'exportStudentsCSV', 'exportAttendanceCSV', 'exportGradesCSV', 'academicYear', 'openAt', 'closeAt', 'renderClientErrors', 'pdfFile', 'showIssuedCodes']) {
+  if (!adminSource.includes(feature)) fail(`Admin v54 feature is missing: ${feature}`);
 }
 if (!adminSource.includes('اشتراكات السنتر') || adminSource.includes('بوابة دفع')) fail('Center subscription wording is incomplete');
-if (!failures.some(x => x.includes('Admin v53 feature') || x.includes('subscription wording'))) ok('Academic-year, export, error-monitoring, and center-subscription checks passed');
+if (!failures.some(x => x.includes('Admin v54 feature') || x.includes('subscription wording'))) ok('Academic-year, export, error-monitoring, and center-subscription checks passed');
 
 if (failures.length) {
   console.error('\nVerification failed:');

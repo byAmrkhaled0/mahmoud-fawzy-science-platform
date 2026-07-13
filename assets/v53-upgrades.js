@@ -96,34 +96,35 @@
   function isStandalone(){return window.matchMedia?.('(display-mode: standalone)').matches||window.navigator.standalone===true;}
   function isIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent);}
   function isMobileDevice(){return /android|iphone|ipad|ipod/i.test(navigator.userAgent)||window.matchMedia?.('(max-width: 820px)').matches;}
+  function isTeacherApp(){return !!document.getElementById('adminRoot');}
   function installHelpHTML(){
     const ios=isIOS();
     return `<div class="pwa-install-modal" id="pwaInstallModal" role="dialog" aria-modal="true" aria-labelledby="pwaInstallTitle">
       <div class="pwa-install-card card">
         <button type="button" class="pwa-install-close" aria-label="إغلاق" onclick="document.getElementById('pwaInstallModal')?.remove()">×</button>
         <span class="pwa-app-icon"><img src="assets/icon-192.png" alt=""></span>
-        <h2 id="pwaInstallTitle">ثبّت منصة العلوم على الموبايل</h2>
-        ${ios?`<ol><li>اضغط زر <b>المشاركة</b> في Safari.</li><li>اختر <b>إضافة إلى الشاشة الرئيسية</b>.</li><li>اضغط <b>إضافة</b>.</li></ol><p>لازم فتح الموقع من Safari، وليس من المتصفح داخل فيسبوك أو واتساب.</p>`:`<ol><li>افتح قائمة المتصفح <b>⋮</b>.</li><li>اختر <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.</li><li>وافق على التثبيت.</li></ol><p>التثبيت يحتاج HTTPS ومتصفح Chrome أو Edge حديث.</p>`}
+        <h2 id="pwaInstallTitle">${isTeacherApp()?'ثبّت لوحة المدرس على الموبايل':'ثبّت منصة العلوم على الموبايل'}</h2>
+        ${ios?`<ol><li>اضغط زر <b>المشاركة</b> في Safari.</li><li>اختر <b>إضافة إلى الشاشة الرئيسية</b>.</li><li>اضغط <b>إضافة</b>.</li></ol><p>لازم فتح الصفحة من Safari، وليس من المتصفح داخل فيسبوك أو واتساب.</p>`:`<ol><li>افتح قائمة المتصفح <b>⋮</b>.</li><li>اختر <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.</li><li>وافق على التثبيت.</li></ol><p>التثبيت يحتاج HTTPS ومتصفح Chrome أو Edge حديث.</p>`}
         <button type="button" class="btn primary" onclick="document.getElementById('pwaInstallModal')?.remove()">فهمت</button>
       </div>
     </div>`;
   }
   function showInstallHelp(){document.getElementById('pwaInstallModal')?.remove();document.body.insertAdjacentHTML('beforeend',installHelpHTML());}
   setupPWAInstall=function(){
-    if(document.getElementById('adminRoot'))return;
+    const teacherMode=isTeacherApp();
     let button=document.getElementById('installAppButton');
-    if(!button&&!isStandalone()&&isMobileDevice()){
+    if(!button&&!isStandalone()&&(teacherMode||isMobileDevice())){
       button=document.createElement('button');
-      button.id='installAppButton';button.type='button';button.className='pwa-floating-install';
-      button.innerHTML='<span aria-hidden="true">⇩</span><span>تثبيت المنصة</span>';
-      document.body.appendChild(button);
+      button.id='installAppButton';button.type='button';button.className=teacherMode?'btn ghost teacher-install-button':'pwa-floating-install';
+      button.innerHTML=teacherMode?'<span aria-hidden="true">⇩</span><span>تثبيت لوحة المدرس على الهاتف</span>':'<span aria-hidden="true">⇩</span><span>تثبيت المنصة</span>';
+      if(teacherMode)document.querySelector('.login-card')?.appendChild(button);else document.body.appendChild(button);
     }
     if(!button)return;
     if(isStandalone()){button.hidden=true;button.style.display='none';return;}
     button.hidden=false;
     let installPrompt=window.__mfInstallPrompt||null;
     const updateLabel=()=>{
-      button.title=isIOS()?'إضافة المنصة إلى الشاشة الرئيسية':'تثبيت المنصة كتطبيق';
+      button.title=isIOS()?(teacherMode?'إضافة لوحة المدرس إلى الشاشة الرئيسية':'إضافة المنصة إلى الشاشة الرئيسية'):(teacherMode?'تثبيت لوحة المدرس كتطبيق':'تثبيت المنصة كتطبيق');
       button.setAttribute('aria-label',button.title);
     };
     updateLabel();
@@ -266,7 +267,7 @@
 
     window.exportStudentsCSV=function(){
       const rows=adminData.students.map(normalizeStudent).map(s=>[s.studentCode,s.parentCode,s.name,s.studentPhone,s.parentPhone,s.grade,s.group,s.month,s.academicYear,s.term,s.paid?'مشترك':'غير مشترك',s.notes]);
-      downloadCSV('students-v53.csv',['كود الطالب','كود ولي الأمر','اسم الطالب','هاتف الطالب','هاتف ولي الأمر','الصف','المجموعة','الشهر','العام الدراسي','الترم','اشتراك السنتر','ملاحظات'],rows);
+      downloadCSV('students-v54.csv',['كود الطالب','كود ولي الأمر','اسم الطالب','هاتف الطالب','هاتف ولي الأمر','الصف','المجموعة','الشهر','العام الدراسي','الترم','اشتراك السنتر','ملاحظات'],rows);
     };
     function parseCSV(text){
       const rows=[];let row=[],field='',quoted=false;
@@ -334,13 +335,13 @@
     };
     window.exportAttendanceCSV=function(){
       const rows=[];adminData.students.map(normalizeStudent).forEach(st=>(st.attendance||[]).forEach(a=>rows.push([a.date,a.time,a.status==='present'?'حاضر':'غائب',st.studentCode,st.name,st.grade,st.group,a.academicYear||st.academicYear,a.term||st.term,a.method||''])));
-      downloadCSV('attendance-v53.csv',['التاريخ','الوقت','الحالة','كود الطالب','اسم الطالب','الصف','المجموعة','العام الدراسي','الترم','الطريقة'],rows);
+      downloadCSV('attendance-v54.csv',['التاريخ','الوقت','الحالة','كود الطالب','اسم الطالب','الصف','المجموعة','العام الدراسي','الترم','الطريقة'],rows);
     };
 
     renderPayments=function(){
       fresh();content(`<div class="section-head"><div><span class="kicker"><span data-icon="database"></span> اشتراكات السنتر</span><h2 class="section-title">تسجيل حالة الاشتراك داخل السنتر</h2><p class="section-desc">لا يوجد دفع إلكتروني في المنصة. هذا القسم لتسجيل هل الطالب دفع في السنتر فقط.</p></div><button class="btn ghost" onclick="exportCenterSubscriptionsCSV()">تصدير CSV</button></div><div class="grid">${GRADES.map(g=>{const rows=adminData.students.filter(s=>s.grade===g).map(normalizeStudent);return `<div class="card"><h3>${safe(g)}</h3>${rows.map(s=>`<div class="mobile-row"><div><b>${safe(s.name)}</b><small>${safe(s.studentCode)} · ${safe(s.month||'-')} · ${safe(s.academicYear||'-')} · ${safe(s.term||'-')}</small></div><span class="badge ${badgeStatus(s.paid)}">${s.paid?'تم الاشتراك':'غير مشترك'}</span><div class="mobile-actions"><button class="small-btn primary" onclick="setPaid('${safe(s.studentCode)}',true)">تم الدفع في السنتر</button><button class="small-btn danger" onclick="setPaid('${safe(s.studentCode)}',false)">لم يدفع</button></div></div>`).join('')||'<p class="section-desc">لا يوجد طلاب.</p>'}</div>`;}).join('')}</div>`);
     };
-    window.exportCenterSubscriptionsCSV=function(){const rows=adminData.students.map(normalizeStudent).map(s=>[s.studentCode,s.name,s.grade,s.group,s.month,s.academicYear,s.term,s.paid?'تم الدفع في السنتر':'لم يدفع',s.paymentDate||'']);downloadCSV('center-subscriptions-v53.csv',['كود الطالب','الاسم','الصف','المجموعة','الشهر','العام الدراسي','الترم','الحالة','تاريخ التسجيل'],rows);};
+    window.exportCenterSubscriptionsCSV=function(){const rows=adminData.students.map(normalizeStudent).map(s=>[s.studentCode,s.name,s.grade,s.group,s.month,s.academicYear,s.term,s.paid?'تم الدفع في السنتر':'لم يدفع',s.paymentDate||'']);downloadCSV('center-subscriptions-v54.csv',['كود الطالب','الاسم','الصف','المجموعة','الشهر','العام الدراسي','الترم','الحالة','تاريخ التسجيل'],rows);};
 
     const renderExamsV52=renderExams;
     renderExams=function(){
@@ -351,16 +352,43 @@
         retake?.insertAdjacentHTML('beforebegin',`<select name="group"><option>كل المجموعات</option>${groupOptions().map(g=>`<option>${safe(g)}</option>`).join('')}</select><select name="academicYear">${academicYearOptions(ctx.academicYear)}</select><select name="term">${ACADEMIC_TERMS.map(t=>`<option ${t===ctx.term?'selected':''}>${t}</option>`).join('')}</select><label class="field"><span>فتح الامتحان</span><input name="openAt" type="datetime-local"></label><label class="field"><span>إغلاق الامتحان</span><input name="closeAt" type="datetime-local"></label>`);
         form.addEventListener('submit',event=>{const open=form.openAt.value,close=form.closeAt.value;if(open&&close&&new Date(close)<=new Date(open)){event.preventDefault();event.stopImmediatePropagation();aToast('موعد إغلاق الامتحان يجب أن يكون بعد موعد الفتح');}},true);
       }
+      const questions=form?.querySelector('[name="text"]');
+      if(questions&&!form.querySelector('[name="pdfFile"]')){
+        questions.insertAdjacentHTML('beforebegin',`<label class="exam-pdf-upload"><span><b>ملف الامتحان PDF (اختياري)</b><small>يمكن رفع PDF حتى 15MB، وكتابة الأسئلة هنا أو تركها فارغة ليجيب الطالب عن الملف في مربع إجابة واحد.</small></span><input name="pdfFile" type="file" accept="application/pdf,.pdf"></label>`);
+        questions.placeholder='اكتب الأسئلة هنا، أو ارفع PDF فقط.\n\nمثال اختياري:\nما عاصمة مصر؟\nأ) القاهرة\nب) الإسكندرية\nالإجابة: أ\n\nمثال مقالي:\nاشرح أهمية الضوء للنبات.';
+      }
+      if(form){
+        form.onsubmit=async event=>{
+          event.preventDefault();
+          const button=form.querySelector('button[type="submit"]'),pdfFile=form.elements.pdfFile?.files?.[0]||null;
+          const ex=Object.fromEntries(new FormData(form).entries());delete ex.pdfFile;
+          if(ex.openAt&&ex.closeAt&&new Date(ex.closeAt)<=new Date(ex.openAt))return aToast('موعد إغلاق الامتحان يجب أن يكون بعد موعد الفتح');
+          if(pdfFile&&(pdfFile.type!=='application/pdf'||pdfFile.size>15*1024*1024))return aToast('اختار ملف PDF صحيحًا بحجم لا يزيد عن 15MB');
+          if(!String(ex.text||'').trim()&&!pdfFile)return aToast('اكتب أسئلة الامتحان أو ارفع ملف PDF');
+          if(!String(ex.text||'').trim()&&pdfFile)ex.text='أجب عن أسئلة ملف الامتحان PDF بالترتيب، واكتب رقم كل سؤال قبل إجابته.';
+          const parsed=typeof parseExamQuestions==='function'?parseExamQuestions(ex.text||''):[];
+          if(!parsed.length)return aToast('تعذر قراءة الأسئلة. افصل بين كل سؤال والذي يليه بسطر فارغ.');
+          const missing=parsed.filter(q=>q.type==='mcq'&&!String(q.answer||'').trim()).length;
+          if(missing)return aToast('اكتب الإجابة الصحيحة لكل سؤال اختياري بصيغة: الإجابة: أ');
+          button.disabled=true;button.classList.add('is-loading');
+          try{
+            if(pdfFile){const upload=await window.MFCloud?.uploadAttachment?.(pdfFile,'teacher-uploads');if(!upload?.url)throw new Error('pdf upload');ex.pdfUrl=upload.url;ex.pdfName=upload.fileName;ex.pdfPath=upload.path;}
+            ex.id=`ex-${Date.now()}`;ex.allowRetake=!!ex.allowRetake;ex.active=true;ex.questionCount=parsed.length;ex.mcqCount=parsed.filter(q=>q.type==='mcq').length;ex.essayCount=parsed.filter(q=>q.type==='essay').length;
+            adminData.exams.push(ex);persist(pdfFile?'تم رفع PDF وحفظ الامتحان':'تم حفظ الامتحان والأسئلة');renderExams();
+          }catch(error){aToast('تعذر حفظ الامتحان أو رفع ملف PDF. تحقق من الإنترنت وحاول مرة أخرى.');}
+          finally{button.disabled=false;button.classList.remove('is-loading');}
+        };
+      }
       if(form&&!document.getElementById('exportGradesButton'))form.insertAdjacentHTML('afterend',`<div class="mobile-actions exam-export-tools"><button id="exportGradesButton" class="btn ghost" type="button" onclick="exportGradesCSV()">تصدير الدرجات</button></div>`);
-      const existing=form?.nextElementSibling;
+      const existing=[...(form?.parentElement?.children||[])].find(element=>element!==form&&element.classList.contains('card'));
       if(existing&&!document.getElementById('examScheduleSummary')){
-        existing.insertAdjacentHTML('beforeend',`<div id="examScheduleSummary" class="exam-schedule-summary"><h3>مواعيد الإتاحة</h3>${adminData.exams.map(ex=>`<div class="mobile-row"><b>${safe(ex.title)}</b><small>${safe(ex.academicYear||ctx.academicYear)} · ${safe(ex.term||ctx.term)} · ${safe(ex.group||'كل المجموعات')}</small><span class="badge ${examAvailabilityClass(ex)}">${safe(examAvailabilityText(ex))}</span></div>`).join('')||'<p class="section-desc">لا توجد امتحانات.</p>'}</div>`);
+        existing.insertAdjacentHTML('beforeend',`<div id="examScheduleSummary" class="exam-schedule-summary"><h3>مواعيد الإتاحة</h3>${adminData.exams.map(ex=>`<div class="mobile-row"><div><b>${safe(ex.title)}</b><small>${safe(ex.academicYear||ctx.academicYear)} · ${safe(ex.term||ctx.term)} · ${safe(ex.group||'كل المجموعات')}</small></div><span class="badge ${examAvailabilityClass(ex)}">${safe(examAvailabilityText(ex))}</span>${ex.pdfUrl?`<a class="small-btn" href="${safe(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer">فتح PDF</a>`:''}</div>`).join('')||'<p class="section-desc">لا توجد امتحانات.</p>'}</div>`);
       }
       populateAcademicSelects();
     };
     function examAvailabilityText(ex){const now=Date.now(),open=ex.openAt?new Date(ex.openAt).getTime():0,close=ex.closeAt?new Date(ex.closeAt).getTime():0;if(ex.active===false)return 'متوقف';if(open&&now<open)return 'لم يفتح بعد';if(close&&now>close)return 'مغلق';return 'متاح';}
     function examAvailabilityClass(ex){return examAvailabilityText(ex)==='متاح'?'good':examAvailabilityText(ex)==='لم يفتح بعد'?'warn':'danger';}
-    window.exportGradesCSV=function(){const rows=(adminData.examAttempts||[]).map(a=>[a.studentCode,a.studentName,a.examTitle,a.score??'',a.autoScore??'',a.status,a.submittedAt,a.academicYear||'',a.term||'']);downloadCSV('exam-grades-v53.csv',['كود الطالب','اسم الطالب','الامتحان','الدرجة النهائية','الدرجة التلقائية','الحالة','تاريخ التسليم','العام الدراسي','الترم'],rows);};
+    window.exportGradesCSV=function(){const rows=(adminData.examAttempts||[]).map(a=>[a.studentCode,a.studentName,a.examTitle,a.score??'',a.autoScore??'',a.status,a.submittedAt,a.academicYear||'',a.term||'']);downloadCSV('exam-grades-v54.csv',['كود الطالب','اسم الطالب','الامتحان','الدرجة النهائية','الدرجة التلقائية','الحالة','تاريخ التسليم','العام الدراسي','الترم'],rows);};
 
     renderSettings=function(){
       fresh();const ctx=currentAcademicContext();content(`<div class="section-head"><div><span class="kicker"><span data-icon="sparkles"></span> الإعدادات</span><h2 class="section-title">إعدادات المنصة والعام الدراسي</h2></div></div><div class="card"><form id="settingsForm" class="grid grid-2"><div class="field"><label>الدومين الأساسي</label><input name="siteUrl" value="${safe(adminData.settings.siteUrl||DEFAULT_SITE_URL||'')}" placeholder="الدومين الأساسي"></div><div class="field"><label>رقم واتساب المدرس</label><input name="teacherPhone" value="${safe(adminData.settings.teacherPhone||TEACHER_WHATSAPP||'')}" placeholder="رقم واتساب المدرس"></div><div class="field"><label>العام الدراسي الحالي</label><select name="academicYear">${academicYearOptions(ctx.academicYear)}</select></div><div class="field"><label>الترم الحالي</label><select name="term">${ACADEMIC_TERMS.map(t=>`<option ${t===ctx.term?'selected':''}>${t}</option>`).join('')}</select></div><div class="field grid-span-full"><label>رسالة تنبيه للطلاب</label><textarea name="homeNotice" placeholder="رسالة تنبيه للطلاب">${safe(adminData.settings.homeNotice||'')}</textarea></div><button class="btn primary grid-span-full"><span data-icon="sparkles"></span> حفظ الإعدادات</button></form></div><div class="grid grid-3" style="margin-top:18px"><div class="seo-card"><h3>تخزين منفصل</h3><p>الطلاب والحضور والدرجات والامتحانات تُحفظ في Collections منفصلة، ولا يتم تحديث مستند ضخم واحد.</p></div><div class="seo-card"><h3>أمان النماذج</h3><p>الحجز والتقييم يعملان من خلال Cloud Functions فقط مع Rate Limit.</p></div><div class="seo-card"><h3>المصادقة الثنائية</h3><p>الكود جاهز لإعادة تعيين كلمة المرور. تفعيل MFA نفسه يحتاج تفعيل Identity Platform من Firebase Console.</p></div></div>`);
@@ -399,7 +427,7 @@
     window.forceFirestoreSync=async function(){try{await window.MFCloud?.saveSiteData?.(adminData);aToast('تم حفظ ومزامنة جميع البيانات');}catch(error){aToast('تعذرت المزامنة. تحقق من الإنترنت وحاول مرة أخرى.');}};
 
     const approveBookingV53=window.approveBooking;
-    window.approveBooking=async function(code){await approveBookingV53(code);try{await window.MFCloud?.saveSiteData?.(adminData);aToast('تم قبول الطالب وتحديث الموقع');}catch(error){aToast('تم القبول على الجهاز، لكن تعذر تحديث الموقع. تحقق من الإنترنت.');}};
+    window.approveBooking=async function(code){return approveBookingV53(code);};
     const approveReviewV53=window.approveReview;
     window.approveReview=async function(id){approveReviewV53(id);try{await window.MFCloud?.saveSiteData?.(adminData);aToast('تم نشر التقييم على الموقع');}catch(error){aToast('تعذر نشر التقييم على الموقع. تحقق من الإنترنت.');}};
     const setPaidV53=window.setPaid;
@@ -446,7 +474,7 @@
     const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);nodes.forEach(node=>{if(node.parentElement?.closest('script,style'))return;let text=node.nodeValue;replacements.forEach(([from,to])=>{text=text.replaceAll(from,to);});node.nodeValue=text;});
   }
 
-  function simplifyScheduleEditor(root=document){const form=(root.id==='scheduleForm'?root:root.querySelector?.('#scheduleForm'));if(!form||form.dataset.simplified)return;form.dataset.simplified='true';['location','capacity','note'].forEach(name=>form.elements[name]?.closest('.field')?.remove());const description=form.previousElementSibling?.querySelector?.('.section-desc');if(description)description.textContent='اكتب اسم المجموعة والصف والأيام والوقت؛ وستظهر للطالب مباشرة في نموذج الحجز.';form.onsubmit=async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');const values=Object.fromEntries(new FormData(form).entries());if(values.endTime&&values.endTime<=values.startTime)return aToast('وقت النهاية يجب أن يكون بعد وقت البداية');values.active=form.active.checked;values.id=values.id||`grp-${Date.now()}`;button.disabled=true;button.classList.add('is-loading');try{const saved=await window.MFCloud?.saveGroup?.(values);if(!saved?.id)throw new Error('save failed');const index=adminData.groups.findIndex(group=>String(group.id)===String(saved.id));if(index>=0)adminData.groups[index]={...adminData.groups[index],...saved};else adminData.groups.push(saved);saveData(adminData);aToast(index>=0?'تم تعديل المجموعة والموعد':'تمت إضافة المجموعة إلى صفحة الحجز');renderSection();}catch(error){aToast('تعذر حفظ المجموعة. تأكد من تسجيل الدخول والاتصال بالإنترنت.');}finally{button.disabled=false;button.classList.remove('is-loading');}};}
+  function simplifyScheduleEditor(root=document){const form=(root.id==='scheduleForm'?root:root.querySelector?.('#scheduleForm'));if(!form||form.dataset.simplified)return;form.dataset.simplified='true';['location','capacity','note'].forEach(name=>form.elements[name]?.closest('.field')?.remove());const days=form.elements.days;if(days&&!document.getElementById('commonScheduleDays')){days.setAttribute('list','commonScheduleDays');days.placeholder='اختار أو اكتب الأيام';days.insertAdjacentHTML('afterend','<datalist id="commonScheduleDays"><option value="السبت والثلاثاء"><option value="الأحد والأربعاء"><option value="الإثنين والخميس"><option value="الجمعة"><option value="يوميًا"></datalist>');}const description=form.previousElementSibling?.querySelector?.('.section-desc');if(description)description.textContent='4 بيانات فقط: اسم المجموعة، الصف، الأيام والوقت. وسيظهر الموعد للطلاب فور الحفظ.';form.onsubmit=async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');const values=Object.fromEntries(new FormData(form).entries());if(values.endTime&&values.endTime<=values.startTime)return aToast('وقت النهاية يجب أن يكون بعد وقت البداية');values.active=form.active.checked;values.id=values.id||`grp-${Date.now()}`;button.disabled=true;button.classList.add('is-loading');try{const saved=await window.MFCloud?.saveGroup?.(values);if(!saved?.id)throw new Error('save failed');const index=adminData.groups.findIndex(group=>String(group.id)===String(saved.id));if(index>=0)adminData.groups[index]={...adminData.groups[index],...saved};else adminData.groups.push(saved);saveData(adminData);aToast(index>=0?'تم تعديل المجموعة والموعد':'تمت إضافة المجموعة إلى صفحة الحجز');renderSection();}catch(error){aToast('تعذر حفظ المجموعة. تأكد من تسجيل الدخول والاتصال بالإنترنت.');}finally{button.disabled=false;button.classList.remove('is-loading');}};}
 
   document.addEventListener('DOMContentLoaded',()=>{
     populateAcademicSelects();

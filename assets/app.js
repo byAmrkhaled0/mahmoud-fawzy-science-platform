@@ -45,8 +45,9 @@ function hydrateIcons(){document.querySelectorAll('[data-icon]').forEach(el=>{co
 function toast(msg){const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800);}
 function firebaseFriendlyError(err,fallback){const raw=String(err?.message||err?.code||'');if(/resource-exhausted/i.test(raw))return 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.';if(/not-found/i.test(raw))return 'الكود غير صحيح أو غير موجود.';if(/failed-precondition/i.test(raw))return raw.split(':').pop().trim()||'الاختيار لم يعد متاحًا. حدّث الصفحة وحاول مرة أخرى.';if(/invalid-argument/i.test(raw)){const message=raw.split(':').pop().trim();return /firebase|firestore|function|permission|internal/i.test(message)?(fallback||'تعذر إتمام الطلب. راجع البيانات وحاول مرة أخرى.'):message;}if(/deadline-exceeded/i.test(raw))return 'انتهى وقت الامتحان.';if(/already-exists/i.test(raw))return 'تم تسليم الامتحان بالفعل.';if(/unavailable|network|internal/i.test(raw))return 'تعذر الاتصال بالخدمة. تحقق من الإنترنت وحاول مرة أخرى.';if(/permission-denied|unauthenticated/i.test(raw))return 'لا يمكن تنفيذ الطلب حاليًا. حدّث الصفحة ثم حاول مرة أخرى.';return fallback||'حدث خطأ غير متوقع.';}
 function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
-function normalizeText(v){return String(v||'').trim().toLowerCase().replace(/\s+/g,' ');}
-function phoneDigits(v){return String(v||'').replace(/\D/g,'');}
+function toEnglishDigits(v){return String(v||'').replace(/[٠-٩]/g,digit=>String(digit.charCodeAt(0)-1632)).replace(/[۰-۹]/g,digit=>String(digit.charCodeAt(0)-1776));}
+function normalizeText(v){return toEnglishDigits(v).trim().toLowerCase().replace(/\s+/g,' ');}
+function phoneDigits(v){return toEnglishDigits(v).replace(/\D/g,'');}
 function uid(prefix='ST'){const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';const bytes=new Uint8Array(8);if(window.crypto?.getRandomValues)window.crypto.getRandomValues(bytes);else for(let i=0;i<bytes.length;i++)bytes[i]=Math.floor(Math.random()*256);const body=[...bytes].map(x=>alphabet[x%alphabet.length]).join('');return `${prefix}-${body.slice(0,4)}-${body.slice(4,8)}`;}
 function isoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function arStatus(status){return status==='present'?'حاضر':status==='absent'?'غائب':(status||'-');}
@@ -135,7 +136,7 @@ function calcStudent(st){
   const level= final>=90?'ممتاز':final>=75?'جيد جدًا':final>=60?'جيد':'محتاج متابعة';
   return {attendancePct,avg,hwPct,final,level,totalAttendance:total,present,absent:attendance.filter(a=>(a.status==='absent'||a.status==='غائب')).length,lastGrade:graded.at(-1)};
 }
-function normalizedStudent(st){const code=String(st?.studentCode||st?.code||st?.id||'').trim().toUpperCase(); return {...(st||{}),id:code,code,studentCode:code,parentCode:String(st?.parentCode||'').trim().toUpperCase(),name:st?.studentName||st?.name||'',studentName:st?.studentName||st?.name||''};}
+function normalizedStudent(st){const code=toEnglishDigits(st?.studentCode||st?.code||st?.id||'').trim().toUpperCase(); return {...(st||{}),id:code,code,studentCode:code,parentCode:toEnglishDigits(st?.parentCode||'').trim().toUpperCase(),name:st?.studentName||st?.name||'',studentName:st?.studentName||st?.name||''};}
 function findStudentByCode(code){const q=normalizeText(code); return (appData.students||[]).map(normalizedStudent).find(s=>normalizeText(s.code)===q || normalizeText(s.studentCode)===q) || null;}
 function attendanceDocId(st,date){return `${st.studentCode||st.code}_${date}`.replace(/[\\/#?\[\]]/g,'-');}
 function getAttendanceRows(st){
@@ -298,7 +299,7 @@ async function setupStudent(){
   input?.addEventListener('input',()=>{input.value=input.value.toUpperCase().replace(/\s+/g,'');});
   form.addEventListener('submit', async e=>{
     e.preventDefault();
-    const code=input?.value.trim().toUpperCase(); const box=document.getElementById('studentResult'); const button=form.querySelector('[type="submit"]');
+    const code=toEnglishDigits(input?.value).trim().toUpperCase(); const box=document.getElementById('studentResult'); const button=form.querySelector('[type="submit"]');
     if(!code) return toast('اكتب كود الطالب أولًا');
     if(remember?.checked) safeStorageSet(LAST_STUDENT_CODE_KEY,code); else safeStorageRemove(LAST_STUDENT_CODE_KEY);
     button?.classList.add('is-loading'); if(button)button.disabled=true; form.setAttribute('aria-busy','true');
@@ -426,7 +427,7 @@ async function setupParent(){
   const form=document.getElementById('parentSearchForm'); if(!form) return;
   form.addEventListener('submit', async e=>{
     e.preventDefault();
-    const code=form.querySelector('[name="parentCode"],[name="code"],[name="query"]')?.value.trim();
+    const code=toEnglishDigits(form.querySelector('[name="parentCode"],[name="code"],[name="query"]')?.value).trim().toUpperCase();
     await showParentReportByCode(code);
   });
 }
@@ -485,11 +486,12 @@ function setupBooking(){
       const button=form.querySelector('button[type="submit"]');
       const b=Object.fromEntries(new FormData(form).entries());
       const selectedSchedule=document.getElementById('bookingGroup')?.selectedOptions?.[0];
+      b.studentPhone=phoneDigits(b.studentPhone);
+      b.parentPhone=phoneDigits(b.parentPhone);
       b.scheduleId=selectedSchedule?.dataset?.scheduleId||'';
       b.group=selectedSchedule?.value||b.group||'';
       b.academicYear=typeof currentAcademicContext==='function'?currentAcademicContext().academicYear:'';
       if(!b.scheduleId||!b.group)return toast('اختار مجموعة وموعدًا متاحًا أولًا');
-      if(phoneDigits(b.studentPhone)===phoneDigits(b.parentPhone)) return toast('رقم ولي الأمر لازم يكون مختلف عن رقم الطالب');
       if(!window.MFCloud?.ready || !window.MFCloud?.createBooking) return toast('خدمة الحجز غير متاحة حاليًا. حاول لاحقًا.');
       button?.classList.add('is-loading'); if(button)button.disabled=true;
       try{
@@ -509,12 +511,12 @@ function setupBooking(){
   if(statusForm){
     statusForm.addEventListener('submit',async e=>{
       e.preventDefault();
-      const code=statusForm.querySelector('[name="code"]').value.trim();
+      const code=toEnglishDigits(statusForm.querySelector('[name="code"]').value).trim().toUpperCase();
       await renderBookingStatusResult(code);
     });
   }
 }
-function renderBookingSuccess(b){const box=document.getElementById('bookingSuccess'); if(!box) return; box.hidden=false; box.innerHTML=`<div class="booking-success-card"><span class="badge good">تم تسجيل الحجز بنجاح</span><h3>${esc(b.name)}</h3><div class="grid grid-2"><p><b>كود متابعة الحجز:</b> ${esc(b.code)}</p><p><b>الصف:</b> ${esc(b.grade)}</p><p><b>الشهر:</b> ${esc(b.month)}</p><p><b>المجموعة:</b> ${esc(b.group)}</p></div><p class="section-desc">احتفظ بكود الحجز. بعد الموافقة سيظهر لك كود الطالب، ويُرسل كود ولي الأمر منفصلًا.</p><div class="hero-cta"><button class="btn ghost" onclick="copyBookingCode('${esc(b.code)}')"><span data-icon="clipboard"></span> نسخ الكود</button><a class="btn primary" target="_blank" rel="noreferrer" href="${whatsappLink(appData.settings?.teacherPhone||TEACHER_WHATSAPP,`تم تسجيل حجز للطالب ${b.name} - كود الحجز ${b.code}`)}"><span data-icon="send"></span> تواصل واتساب</a></div></div>`; hydrateIcons();}
+function renderBookingSuccess(b){const box=document.getElementById('bookingSuccess'); if(!box) return; box.hidden=false; box.innerHTML=`<div class="booking-success-card"><span class="badge good">تم تسجيل الحجز بنجاح</span><h3>${esc(b.name)}</h3><div class="booking-code-spotlight"><small>كود متابعة الحجز</small><code>${esc(b.code)}</code><button class="small-btn primary" type="button" onclick="copyBookingCode('${esc(b.code)}')"><span data-icon="clipboard"></span> نسخ الكود</button></div><div class="grid grid-2"><p><b>الصف:</b> ${esc(b.grade)}</p><p><b>الشهر:</b> ${esc(b.month)}</p><p><b>المجموعة:</b> ${esc(b.group)}</p></div><p class="section-desc">صوّر الكود أو انسخه الآن. بعد موافقة المدرس استخدمه في متابعة الحجز ليظهر كود الطالب وكود ولي الأمر.</p><div class="hero-cta"><button class="btn ghost" type="button" onclick="document.querySelector('#bookingStatusForm [name=code]').value='${esc(b.code)}';document.getElementById('bookingStatusForm').requestSubmit()"><span data-icon="search"></span> متابعة الطلب</button><a class="btn primary" target="_blank" rel="noreferrer" href="${whatsappLink(appData.settings?.teacherPhone||TEACHER_WHATSAPP,`تم تسجيل حجز للطالب ${b.name} - كود الحجز ${b.code}`)}"><span data-icon="send"></span> تواصل واتساب</a></div></div>`; hydrateIcons();}
 window.copyBookingCode=function(code){navigator.clipboard?.writeText(code); toast('تم نسخ الكود');};
 function renderBookingPreview(){const box=document.getElementById('bookingPreview'); if(!box) return; box.innerHTML='بيانات الحجز لا تظهر للزوار، ويمكن متابعة طلبك فقط باستخدام كود الحجز.';}
 async function renderBookingStatusResult(code){
@@ -555,7 +557,7 @@ function renderExamQuestionHtml(q,i){
 }
 function cleanAnswerLine(line){return String(line||'').replace(/^(answer|correct|الإجابة|الاجابة|الإجابة الصحيحة|الاجابة الصحيحة)\s*[:=：-]?\s*/i,'').trim();}
 function parseOptionLine(line){
-  const raw=String(line||'').trim();
+  const raw=toEnglishDigits(line).trim();
   let m=raw.match(/^([A-Da-dأإابجدهـه]|[1-4])\s*[\)\.\-:：]\s*(.+)$/);
   if(m) return {label:m[1].replace('إ','أ').replace('هـ','ه'), text:m[2].trim()};
   m=raw.match(/^-\s*(.+)$/);
@@ -563,7 +565,7 @@ function parseOptionLine(line){
   return null;
 }
 function parseExamQuestions(text){
-  const blocks=String(text||'').split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean);
+  const blocks=toEnglishDigits(text).split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean);
   return blocks.map(block=>{
     const lines=block.split('\n').map(x=>x.trim()).filter(Boolean);
     const answerLine=lines.find(l=>/^(answer|correct|الإجابة|الاجابة|الإجابة الصحيحة|الاجابة الصحيحة)\s*[:=：-]?/i.test(l));
@@ -595,7 +597,7 @@ function renderExamPortal(st,exams){
   const available=currentSecureExams.map(ex=>{
     const done=attempts.some(a=>String(a.examId)===String(ex.id)&&a.status!=='started')&&!ex.allowRetake;
     const draft=readExamDraft(ex.id,st.studentCode);
-    return `<article class="exam-portal-card ${done?'completed':''}"><div class="exam-card-top"><span class="iconbox" data-icon="clipboard"></span><div class="exam-card-badges"><span class="badge">${esc(ex.duration||20)} دقيقة</span><span class="badge">${esc(ex.questionCount||'-')} سؤال</span>${draft&&!done?'<span class="badge warn">محاولة محفوظة</span>':''}</div></div><h3>${esc(ex.title)}</h3><p>${esc(ex.instructions||'اقرأ كل سؤال جيدًا قبل اختيار الإجابة.')}</p><button class="btn ${done?'ghost':'primary'} exam-start-btn" type="button" data-exam-id="${esc(ex.id)}" data-student-code="${esc(st.studentCode)}" ${done?'disabled':''}><span data-icon="${done?'user-check':'clipboard'}"></span>${done?'تم تسليم الامتحان':draft?'متابعة الامتحان':'بدء الامتحان'}</button></article>`;
+    return `<article class="exam-portal-card ${done?'completed':''}"><div class="exam-card-top"><span class="iconbox" data-icon="clipboard"></span><div class="exam-card-badges"><span class="badge">${esc(ex.duration||20)} دقيقة</span><span class="badge">${esc(ex.questionCount||'-')} سؤال</span>${ex.pdfUrl?'<span class="badge good">ملف PDF</span>':''}${draft&&!done?'<span class="badge warn">محاولة محفوظة</span>':''}</div></div><h3>${esc(ex.title)}</h3><p>${esc(ex.instructions||'اقرأ كل سؤال جيدًا قبل اختيار الإجابة.')}</p>${ex.pdfUrl?`<a class="small-btn exam-pdf-link" href="${esc(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer"><span data-icon="file-text"></span> فتح ملف الامتحان PDF</a>`:''}<button class="btn ${done?'ghost':'primary'} exam-start-btn" type="button" data-exam-id="${esc(ex.id)}" data-student-code="${esc(st.studentCode)}" ${done?'disabled':''}><span data-icon="${done?'user-check':'clipboard'}"></span>${done?'تم تسليم الامتحان':draft?'متابعة الامتحان':'بدء الامتحان'}</button></article>`;
   }).join('');
   const resultCards=attempts.length?attempts.map(a=>{const ready=a.score!==null&&a.score!==undefined&&a.score!=='';return `<article class="exam-result-card"><div><span class="record-eyebrow">${esc(formatPortalDate(a.submittedAt))}</span><h4>${esc(a.examTitle||'امتحان')}</h4><small>${a.needsManualReview?'ينتظر تصحيح الأسئلة المقالية':'تم التصحيح الآمن على الخادم'}</small></div><strong class="score-pill ${ready?scoreClass(a.score):'warn'}">${ready?esc(a.score)+'%':'قيد التصحيح'}</strong></article>`;}).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد محاولات بعد</h3><p>ستظهر نتائجك هنا بعد التسليم.</p></div>';
   box.innerHTML=`<section class="exam-student-banner"><span class="student-avatar">${esc(String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join(''))}</span><div><small>امتحانات الطالب</small><h2>${esc(st.name)}</h2><p>${esc(st.grade||'')} <span>•</span> ${esc(st.studentCode)}</p></div></section><div class="exam-security-note"><span data-icon="user-check"></span><div><b>التصحيح مؤمّن</b><small>الإجابات النموذجية تظل محمية، ويتم التصحيح تلقائيًا وبأمان بعد التسليم.</small></div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="clipboard"></span> المتاح الآن</span><h3>الامتحانات المتاحة</h3></div><span class="badge">${currentSecureExams.length} امتحان</span></div><div class="exam-portal-grid">${available||'<div class="portal-empty"><span class="iconbox" data-icon="clipboard"></span><h3>لا توجد امتحانات حاليًا</h3><p>ستظهر امتحانات صفك هنا فور نشرها.</p></div>'}</div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="bar-chart"></span> النتائج</span><h3>سجل الامتحانات</h3></div><span class="badge good">${attempts.length} محاولة</span></div><div class="exam-results-grid">${resultCards}</div></div>`;
@@ -607,7 +609,7 @@ function setupExamsPage(){
   const input=form.querySelector('[name="query"]');const remember=form.querySelector('[name="rememberCode"]');const saved=safeStorageGet(LAST_EXAM_CODE_KEY)||safeStorageGet(LAST_STUDENT_CODE_KEY);
   if(saved&&input){input.value=saved;if(remember)remember.checked=true;}
   form.addEventListener('submit',async e=>{
-    e.preventDefault();const code=input.value.trim().toUpperCase();const box=document.getElementById('examStudentResult');const button=form.querySelector('button[type="submit"]');
+    e.preventDefault();const code=toEnglishDigits(input.value).trim().toUpperCase();const box=document.getElementById('examStudentResult');const button=form.querySelector('button[type="submit"]');
     if(!code)return;if(remember?.checked){safeStorageSet(LAST_EXAM_CODE_KEY,code);safeStorageSet(LAST_STUDENT_CODE_KEY,code);}else safeStorageRemove(LAST_EXAM_CODE_KEY);
     box.innerHTML='<div class="skeleton" style="height:180px"></div>';button?.classList.add('is-loading');if(button)button.disabled=true;
     try{
@@ -617,6 +619,8 @@ function setupExamsPage(){
     }catch(err){box.innerHTML=`<div class="portal-empty"><span class="iconbox" data-icon="search"></span><h3>تعذر فتح الامتحانات</h3><p>${esc(firebaseFriendlyError(err,'تأكد من كود الطالب واتصال الإنترنت ثم حاول مرة أخرى.'))}</p></div>`;hydrateIcons();}
     finally{button?.classList.remove('is-loading');if(button)button.disabled=false;}
   });
+  const quickCode=toEnglishDigits(new URLSearchParams(location.search).get('code')||saved).trim().toUpperCase();
+  if(quickCode&&!form.dataset.autoLoaded){form.dataset.autoLoaded='true';input.value=quickCode;setTimeout(()=>form.requestSubmit(),120);}
 }
 function examDraftKey(examId,studentCode){return `${EXAM_DRAFT_PREFIX}${String(examId).replace(/[^\w-]/g,'_')}_${String(studentCode).replace(/[^\w-]/g,'_')}`;}
 function readExamDraft(examId,studentCode){try{return JSON.parse(safeStorageGet(examDraftKey(examId,studentCode))||'null');}catch(e){return null;}}
@@ -640,7 +644,7 @@ window.startExam=async function(examId,studentCode){
   const ex=draft.exam||metadata,qs=draft.questions;
   if(!qs.length)return toast('الامتحان لا يحتوي على أسئلة صالحة');
   const overlay=document.getElementById('examOverlay'),box=document.getElementById('examBox');overlay.classList.add('show');document.body.classList.add('exam-open');
-  box.innerHTML=`<div class="exam-app-shell"><header class="exam-app-header"><div><span class="record-eyebrow">${esc(st.name||'الطالب')}</span><h2>${esc(ex.title)}</h2></div><div class="exam-timer" id="examTimer"><span data-icon="calendar"></span><b>--:--</b></div></header><div class="exam-progress-wrap"><div><b id="examProgressLabel">السؤال 1 من ${qs.length}</b><small id="examSaveStatus">يتم حفظ الإجابات تلقائيًا على جهازك</small></div><div class="progress"><span id="examProgressBar" style="width:${100/qs.length}%"></span></div></div><form id="liveExamForm" novalidate><div id="examQuestionStage"></div><footer class="exam-navigation"><button class="btn ghost" id="examExitBtn" type="button"><span data-icon="external-link"></span> حفظ وخروج</button><div><button class="btn ghost" id="examPrevBtn" type="button">السابق</button><button class="btn primary" id="examNextBtn" type="button">التالي</button><button class="btn primary" id="examSubmitBtn" type="submit"><span data-icon="send"></span> تسليم الامتحان</button></div></footer></form></div>`;
+  box.innerHTML=`<div class="exam-app-shell"><header class="exam-app-header"><div><span class="record-eyebrow">${esc(st.name||'الطالب')}</span><h2>${esc(ex.title)}</h2>${ex.pdfUrl?`<a class="exam-live-pdf" href="${esc(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer"><span data-icon="file-text"></span> فتح PDF</a>`:''}</div><div class="exam-timer" id="examTimer"><span data-icon="calendar"></span><b>--:--</b></div></header><div class="exam-progress-wrap"><div><b id="examProgressLabel">السؤال 1 من ${qs.length}</b><small id="examSaveStatus">يتم حفظ الإجابات تلقائيًا على جهازك</small></div><div class="progress"><span id="examProgressBar" style="width:${100/qs.length}%"></span></div></div><form id="liveExamForm" novalidate><div id="examQuestionStage"></div><footer class="exam-navigation"><button class="btn ghost" id="examExitBtn" type="button"><span data-icon="external-link"></span> حفظ وخروج</button><div><button class="btn ghost" id="examPrevBtn" type="button">السابق</button><button class="btn primary" id="examNextBtn" type="button">التالي</button><button class="btn primary" id="examSubmitBtn" type="submit"><span data-icon="send"></span> تسليم الامتحان</button></div></footer></form></div>`;
   hydrateIcons();
   const stage=box.querySelector('#examQuestionStage'),form=box.querySelector('#liveExamForm'),next=box.querySelector('#examNextBtn'),prev=box.querySelector('#examPrevBtn'),submit=box.querySelector('#examSubmitBtn'),exit=box.querySelector('#examExitBtn');
   let current=Math.min(Math.max(Number(draft.current||0),0),qs.length-1),finished=false,timer=null;
@@ -686,7 +690,23 @@ function setupActiveNavigation(){
   update();
   window.addEventListener('hashchange',update);
 }
-function registerServiceWorker(){if('serviceWorker' in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}}
+function bindLocalizedDigits(){
+  if(window.__mfLocalizedDigitsBound)return;window.__mfLocalizedDigitsBound=true;
+  document.addEventListener('beforeinput',event=>{const input=event.target;if(!(input instanceof HTMLInputElement)||!event.data)return;const converted=toEnglishDigits(event.data);if(converted===event.data)return;if(input.type==='number'){event.preventDefault();input.value=`${input.value||''}${converted}`;input.dispatchEvent(new Event('input',{bubbles:true}));return;}if(typeof input.setRangeText!=='function')return;try{event.preventDefault();const start=input.selectionStart??input.value.length,end=input.selectionEnd??start;input.setRangeText(converted,start,end,'end');input.dispatchEvent(new Event('input',{bubbles:true}));}catch(_){ }});
+  document.addEventListener('input',event=>{const input=event.target;if(!(input instanceof HTMLInputElement))return;const converted=toEnglishDigits(input.value);if(converted!==input.value)input.value=converted;});
+}
+function registerServiceWorker(){
+  if(!('serviceWorker' in navigator)||location.protocol==='file:')return;
+  window.addEventListener('load',async()=>{
+    try{
+      const registration=await navigator.serviceWorker.register('/service-worker.js',{updateViaCache:'none'});
+      await registration.update().catch(()=>{});
+      if(registration.waiting)registration.waiting.postMessage({type:'SKIP_WAITING'});
+      registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)worker.postMessage({type:'SKIP_WAITING'});});});
+    }catch(_){ }
+  });
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{if(sessionStorage.getItem('mf_sw_reloaded_v54'))return;sessionStorage.setItem('mf_sw_reloaded_v54','1');location.reload();}catch(_){ }});
+}
 function setupPWAInstall(){
   const button=document.getElementById('installAppButton');if(!button)return;let installPrompt=null;
   window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;button.hidden=false;});
@@ -694,5 +714,5 @@ function setupPWAInstall(){
   window.addEventListener('appinstalled',()=>{button.hidden=true;toast('تم تثبيت المنصة على الهاتف');});
 }
 function setupClientErrorReporting(){window.addEventListener('error',event=>{window.MFCloud?.reportClientError?.({message:String(event.message||'خطأ JavaScript'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});window.addEventListener('unhandledrejection',event=>{window.MFCloud?.reportClientError?.({message:String(event.reason?.message||event.reason||'Promise rejection'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});}
-function init(){setupTheme(); setupActiveNavigation(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderBookingPreview(); renderUnifiedResourcesPage(); initFirebaseData();}
+function init(){setupTheme(); setupActiveNavigation(); bindLocalizedDigits(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderBookingPreview(); renderUnifiedResourcesPage(); initFirebaseData();}
 document.addEventListener('DOMContentLoaded',init);

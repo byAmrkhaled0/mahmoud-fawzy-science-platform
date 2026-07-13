@@ -22,7 +22,7 @@ function cleanDocId(value) {
 }
 
 function normalizeCode(value) {
-  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+  return normalizeDigits(value).trim().toUpperCase().replace(/\s+/g, '');
 }
 
 function validLegacyOrStrongCode(value) {
@@ -33,8 +33,19 @@ function text(value, max = 200) {
   return String(value || '').trim().slice(0, max);
 }
 
+function normalizeDigits(value) {
+  return String(value || '')
+    .replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 1776));
+}
+
 function digits(value) {
-  return String(value || '').replace(/\D/g, '');
+  return normalizeDigits(value).replace(/\D/g, '');
+}
+
+function safePublicUrl(value) {
+  const url = text(value, 2000);
+  return /^https:\/\//i.test(url) ? url : '';
 }
 
 function hash(value) {
@@ -114,7 +125,9 @@ function publicExamSession(sessionId, exam, questions, startedAtMs, expiresAtMs)
       id: text(exam.id, 100),
       title: text(exam.title, 200),
       instructions: text(exam.instructions, 1500),
-      duration: Math.max(1, Math.min(240, Number(exam.duration || 20)))
+      duration: Math.max(1, Math.min(240, Number(exam.duration || 20))),
+      pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
+      pdfName: text(exam.pdfName || exam.examPdfName, 220)
     },
     startedAt: new Date(startedAtMs).toISOString(),
     expiresAt: expiresAtMs,
@@ -132,7 +145,7 @@ function cleanAnswerLine(line) {
 }
 
 function parseOptionLine(line) {
-  const raw = String(line || '').trim();
+  const raw = normalizeDigits(line).trim();
   let match = raw.match(/^([A-Da-dأإابجدهـه]|[1-4])\s*[\)\.\-:：]\s*(.+)$/);
   if (match) return { label: match[1].replace('إ', 'أ').replace('هـ', 'ه'), text: match[2].trim() };
   match = raw.match(/^-\s*(.+)$/);
@@ -141,7 +154,7 @@ function parseOptionLine(line) {
 }
 
 function parseExamQuestions(source) {
-  const blocks = String(source || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean).slice(0, 200);
+  const blocks = normalizeDigits(source).split(/\n\s*\n/).map(x => x.trim()).filter(Boolean).slice(0, 200);
   return blocks.map(block => {
     const lines = block.split('\n').map(x => x.trim()).filter(Boolean);
     const answerLine = lines.find(line => /^(answer|correct|الإجابة|الاجابة|الإجابة الصحيحة|الاجابة الصحيحة)\s*[:=：-]?/i.test(line));
@@ -271,7 +284,7 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
   const staff = await requireStaff(request);
   const body = request.data || {};
   const name = text(body.studentName || body.name, 100);
-  const parentPhone = text(body.parentPhone, 20);
+  const parentPhone = digits(body.parentPhone);
   if (name.length < 3) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب كاملًا.');
   if (digits(parentPhone).length < 10) throw new HttpsError('invalid-argument', 'اكتب رقم ولي أمر صحيحًا.');
 
@@ -291,7 +304,7 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
       parentCode,
       studentName: name,
       name,
-      studentPhone: text(body.studentPhone, 20),
+      studentPhone: digits(body.studentPhone),
       parentPhone,
       grade: text(body.grade, 80),
       month: text(body.month, 40),
@@ -349,7 +362,6 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   const parentPhone = digits(body.parentPhone);
   if (name.length < 3) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب كاملًا.');
   if (studentPhone.length < 10 || parentPhone.length < 10) throw new HttpsError('invalid-argument', 'اكتب أرقام هاتف صحيحة.');
-  if (studentPhone === parentPhone) throw new HttpsError('invalid-argument', 'رقم الطالب يجب أن يختلف عن رقم ولي الأمر.');
   const requestedGrade = text(body.grade, 80);
   const requestedGroup = text(body.group, 100);
   let selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
@@ -379,8 +391,8 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     code,
     name,
     studentName: name,
-    studentPhone: text(body.studentPhone, 20),
-    parentPhone: text(body.parentPhone, 20),
+    studentPhone,
+    parentPhone,
     grade: requestedGrade,
     month: text(body.month, 40),
     group: text(schedule.name, 100),
@@ -418,6 +430,129 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   batch.set(db.collection('booking_status').doc(cleanDocId(code)), statusPayload);
   await batch.commit();
   return { code, status: payload.status };
+});
+
+exports.approveBooking = onCall(CALLABLE_OPTIONS, async request => {
+  const staff = await requireStaff(request);
+  const bookingCode = normalizeCode(request.data && request.data.code);
+  if (!validLegacyOrStrongCode(bookingCode)) throw new HttpsError('invalid-argument', 'كود الحجز غير صالح.');
+
+  const bookingRef = db.collection('bookings').doc(cleanDocId(bookingCode));
+  const statusRef = db.collection('booking_status').doc(cleanDocId(bookingCode));
+
+  for (let attemptNo = 0; attemptNo < 8; attemptNo += 1) {
+    const studentCode = randomCode('ST', 8);
+    const parentCode = randomCode('PR', 8);
+    const studentRef = db.collection('students').doc(cleanDocId(studentCode));
+    const studentPortalRef = db.collection('student_portal').doc(cleanDocId(studentCode));
+    const parentPortalRef = db.collection('parent_portal').doc(cleanDocId(parentCode));
+    const paymentRef = db.collection('payments').doc(cleanDocId(studentCode));
+
+    try {
+      const result = await db.runTransaction(async tx => {
+        const [bookingSnap, statusSnap, studentExists, parentExists] = await Promise.all([
+          tx.get(bookingRef), tx.get(statusRef), tx.get(studentPortalRef), tx.get(parentPortalRef)
+        ]);
+        const existingStatus = statusSnap.exists ? statusSnap.data() : {};
+        if (existingStatus.studentCode) {
+          return {
+            alreadyApproved: true,
+            bookingCode,
+            studentCode: text(existingStatus.studentCode, 40),
+            code: text(existingStatus.studentCode, 40),
+            parentCode: text(existingStatus.parentCode, 40),
+            name: text(existingStatus.name || existingStatus.studentName, 100),
+            studentName: text(existingStatus.name || existingStatus.studentName, 100),
+            grade: text(existingStatus.grade, 80),
+            group: text(existingStatus.group, 100),
+            month: text(existingStatus.month, 40),
+            academicYear: text(existingStatus.academicYear, 20),
+            term: text(existingStatus.term, 40),
+            active: true,
+            paid: false
+          };
+        }
+        if (!bookingSnap.exists) throw new HttpsError('not-found', 'الحجز غير موجود أو تم قبوله من قبل.');
+        if (studentExists.exists || parentExists.exists) throw new HttpsError('aborted', 'code-collision');
+
+        const booking = bookingSnap.data() || {};
+        const name = text(booking.studentName || booking.name, 100);
+        const student = {
+          studentCode,
+          code: studentCode,
+          parentCode,
+          bookingCode,
+          studentName: name,
+          name,
+          studentPhone: digits(booking.studentPhone),
+          parentPhone: digits(booking.parentPhone),
+          grade: text(booking.grade, 80),
+          month: text(booking.month, 40),
+          group: text(booking.group, 100),
+          academicYear: text(booking.academicYear, 20),
+          term: text(booking.term, 40),
+          notes: text(booking.notes, 1500),
+          paid: false,
+          paymentDate: '',
+          active: true,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        };
+        const portal = portalResponse(student, []);
+        const acceptedStatus = {
+          code: bookingCode,
+          name,
+          studentName: name,
+          grade: student.grade,
+          month: student.month,
+          group: student.group,
+          scheduleId: text(booking.scheduleId, 100),
+          scheduleDays: text(booking.scheduleDays, 100),
+          scheduleStartTime: text(booking.scheduleStartTime, 20),
+          scheduleEndTime: text(booking.scheduleEndTime, 20),
+          academicYear: student.academicYear,
+          term: student.term,
+          status: 'تم القبول والتسجيل كطالب',
+          studentCode,
+          parentCode,
+          acceptedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        };
+
+        tx.set(studentRef, student);
+        tx.set(studentPortalRef, { ...portal, studentCode, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
+        tx.set(parentPortalRef, { ...portal, studentCode, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
+        tx.set(paymentRef, { studentCode, studentName: name, grade: student.grade, group: student.group, academicYear: student.academicYear, term: student.term, paid: false, paymentDate: '', updatedAt: FieldValue.serverTimestamp() });
+        tx.set(statusRef, acceptedStatus, { merge: true });
+        tx.delete(bookingRef);
+        tx.set(db.collection('activityLog').doc(), { action: 'تم قبول الحجز وتسجيل الطالب', meta: { bookingCode, studentCode }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
+
+        return {
+          bookingCode,
+          studentCode,
+          code: studentCode,
+          parentCode,
+          name,
+          studentName: name,
+          studentPhone: student.studentPhone,
+          parentPhone: student.parentPhone,
+          grade: student.grade,
+          month: student.month,
+          group: student.group,
+          academicYear: student.academicYear,
+          term: student.term,
+          notes: student.notes,
+          active: true,
+          paid: false
+        };
+      });
+      return result;
+    } catch (error) {
+      if (String(error?.message || '').includes('code-collision') && attemptNo < 7) continue;
+      throw error;
+    }
+  }
+  throw new HttpsError('resource-exhausted', 'تعذر إنشاء أكواد فريدة، حاول مرة أخرى.');
 });
 
 exports.getBookingStatus = onCall(CALLABLE_OPTIONS, async request => {
@@ -504,6 +639,8 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
       closeAt: text(exam.closeAt, 60),
       duration: Math.max(1, Math.min(240, Number(exam.duration || 20))),
       instructions: text(exam.instructions, 1500),
+      pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
+      pdfName: text(exam.pdfName || exam.examPdfName, 220),
       allowRetake: exam.allowRetake === true,
       questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length)
     }));
@@ -566,6 +703,8 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
       term: text(found.data.term, 40),
       examTitle: text(exam.title, 200),
       instructions: text(exam.instructions, 1500),
+      pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
+      pdfName: text(exam.pdfName || exam.examPdfName, 220),
       duration: durationMinutes,
       allowRetake: exam.allowRetake === true,
       attemptSequence,
@@ -592,7 +731,9 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
     id: examId,
     title: sessionData.examTitle || exam.title,
     instructions: sessionData.instructions || exam.instructions,
-    duration: sessionData.duration || durationMinutes
+    duration: sessionData.duration || durationMinutes,
+    pdfUrl: sessionData.pdfUrl || exam.pdfUrl || exam.examPdfUrl,
+    pdfName: sessionData.pdfName || exam.pdfName || exam.examPdfName
   }, snapshotQuestions, startedAtMs, expiresAtMs);
 });
 
@@ -828,7 +969,7 @@ async function createPlatformBackup(reason, actor = {}) {
   const collections = {};
   for (const name of BACKUP_COLLECTIONS) collections[name] = await exportCollection(name);
   const payload = {
-    schemaVersion: 53,
+    schemaVersion: 54,
     backupFormatVersion: 2,
     project: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'mahmoud-fawzy-science-platform',
     reason: text(reason, 100),
@@ -929,7 +1070,7 @@ exports.restoreAutomaticBackup = onCall({ region: 'europe-west1', timeoutSeconds
   if (!name.startsWith('automatic-backups/') || !name.endsWith('.json.gz')) {
     throw new HttpsError('invalid-argument', 'مسار النسخة غير صالح.');
   }
-  if (confirmation !== 'RESTORE-V53') throw new HttpsError('failed-precondition', 'تأكيد الاستعادة غير صحيح.');
+  if (!['RESTORE-V53', 'RESTORE-V54'].includes(confirmation)) throw new HttpsError('failed-precondition', 'تأكيد الاستعادة غير صحيح.');
 
   const file = admin.storage().bucket().file(name);
   const [exists] = await file.exists();
@@ -987,7 +1128,7 @@ exports.deleteStudentSafely = onCall({ region: 'europe-west1', timeoutSeconds: 1
   const attemptsParent = db.collection('student_attempts').doc(cleanDocId(studentCode));
   const attemptsChildren = await attemptsParent.collection('attempts').get().catch(() => null);
   const deletionSnapshot = {
-    schemaVersion: 53,
+    schemaVersion: 54,
     deletedAt: new Date().toISOString(),
     deletedBy: { uid: staff.uid, email: staff.email || '', role: staff.role || '' },
     student: { id: studentSnap.id, data: student },

@@ -19,6 +19,7 @@ const entriesToCopy = [
   'robots.txt',
   'sitemap.xml',
   'site.webmanifest',
+  'teacher.webmanifest',
   'service-worker.js',
   'offline.html'
 ];
