@@ -14,6 +14,6 @@
     "firebase:deploy:all": "npm run test && npm run build && firebase deploy --only firestore:rules,firestore:indexes,storage,functions,hosting"
   },
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   }
 }
