@@ -350,12 +350,28 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   if (name.length < 3) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب كاملًا.');
   if (studentPhone.length < 10 || parentPhone.length < 10) throw new HttpsError('invalid-argument', 'اكتب أرقام هاتف صحيحة.');
   if (studentPhone === parentPhone) throw new HttpsError('invalid-argument', 'رقم الطالب يجب أن يختلف عن رقم ولي الأمر.');
-  const requestedScheduleId = cleanDocId(text(body.scheduleId, 100));
-  if (!requestedScheduleId) throw new HttpsError('invalid-argument', 'اختار مجموعة وموعدًا متاحًا.');
-  const scheduleSnap = await db.collection('groups').doc(requestedScheduleId).get();
-  if (!scheduleSnap.exists || scheduleSnap.data().active === false) throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
-  const schedule = scheduleSnap.data();
   const requestedGrade = text(body.grade, 80);
+  const requestedGroup = text(body.group, 100);
+  let selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
+  let scheduleSnap = selectedScheduleId ? await db.collection('groups').doc(selectedScheduleId).get() : null;
+
+  // Resolve a current Firestore group when the browser retained an older local id.
+  // The exact name, active flag and grade are still validated before booking.
+  if ((!scheduleSnap || !scheduleSnap.exists) && requestedGroup) {
+    const candidates = await db.collection('groups').where('name', '==', requestedGroup).limit(20).get();
+    const matching = candidates.docs.find(doc => {
+      const item = doc.data() || {};
+      return item.active !== false && (!item.grade || item.grade === 'كل الصفوف' || item.grade === requestedGrade);
+    });
+    if (matching) {
+      scheduleSnap = matching;
+      selectedScheduleId = matching.id;
+    }
+  }
+  if (!scheduleSnap || !scheduleSnap.exists || scheduleSnap.data().active === false) {
+    throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
+  }
+  const schedule = scheduleSnap.data();
   if (schedule.grade && schedule.grade !== 'كل الصفوف' && schedule.grade !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
   const code = await uniqueCode('bookings', 'BK');
   const payload = {
@@ -368,7 +384,7 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     grade: requestedGrade,
     month: text(body.month, 40),
     group: text(schedule.name, 100),
-    scheduleId: requestedScheduleId,
+    scheduleId: selectedScheduleId,
     scheduleDays: text(schedule.days, 100),
     scheduleStartTime: text(schedule.startTime, 20),
     scheduleEndTime: text(schedule.endTime, 20),
