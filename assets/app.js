@@ -1,11 +1,11 @@
 var DEFAULT_SITE_URL = 'https://mahmoud-fawzy-science-platform.vercel.app';
 var TEACHER_WHATSAPP = '201554930313';
 var ENGINEER_WHATSAPP = '201008454029';
-var GRADES = ['أولى إعدادي','تانية إعدادي','تالتة إعدادي','أولى ثانوي','تالتة ثانوي'];
+var GRADES = ['رابعة ابتدائي','خامسة ابتدائي','سادسة ابتدائي','أولى إعدادي','تانية إعدادي','تالتة إعدادي','أولى ثانوي','تانية ثانوي','تالتة ثانوي'];
 var MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
-var STORAGE_KEY = 'mf_science_v12_data';
+var STORAGE_KEY = 'mf_science_v53_data';
 var OLD_STORAGE_KEY = 'mf_science_v11_data';
-var PUBLIC_STORAGE_KEY = 'mf_science_v43_public_cache';
+var PUBLIC_STORAGE_KEY = 'mf_science_v53_public_cache';
 var LAST_STUDENT_CODE_KEY = 'mf_last_student_code';
 var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
@@ -43,7 +43,7 @@ var appDataLoadFailed = false;
 function iconNameToKey(name){return String(name||'').replace(/-([a-z])/g,(_,c)=>c.toUpperCase());}
 function hydrateIcons(){document.querySelectorAll('[data-icon]').forEach(el=>{const key=iconNameToKey(el.dataset.icon); if(icons[key]) el.innerHTML=icons[key];});}
 function toast(msg){const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800);}
-function firebaseFriendlyError(err,fallback){const raw=String(err?.message||err?.code||'');if(/resource-exhausted/i.test(raw))return 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.';if(/not-found/i.test(raw))return 'الكود غير صحيح أو غير موجود.';if(/invalid-argument/i.test(raw))return raw.split(':').pop().trim()||fallback;if(/deadline-exceeded/i.test(raw))return 'انتهى وقت الامتحان.';if(/already-exists/i.test(raw))return 'تم تسليم الامتحان بالفعل.';if(/unavailable|network|internal/i.test(raw))return 'تعذر الاتصال بالخدمة. تحقق من الإنترنت وحاول مرة أخرى.';if(/permission-denied/i.test(raw))return 'رفض Firebase الطلب. تأكد من نشر قواعد Firestore الجديدة.';return fallback||'حدث خطأ غير متوقع.';}
+function firebaseFriendlyError(err,fallback){const raw=String(err?.message||err?.code||'');if(/resource-exhausted/i.test(raw))return 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.';if(/not-found/i.test(raw))return 'الكود غير صحيح أو غير موجود.';if(/failed-precondition/i.test(raw))return raw.split(':').pop().trim()||'الاختيار لم يعد متاحًا. حدّث الصفحة وحاول مرة أخرى.';if(/invalid-argument/i.test(raw)){const message=raw.split(':').pop().trim();return /firebase|firestore|function|permission|internal/i.test(message)?(fallback||'تعذر إتمام الطلب. راجع البيانات وحاول مرة أخرى.'):message;}if(/deadline-exceeded/i.test(raw))return 'انتهى وقت الامتحان.';if(/already-exists/i.test(raw))return 'تم تسليم الامتحان بالفعل.';if(/unavailable|network|internal/i.test(raw))return 'تعذر الاتصال بالخدمة. تحقق من الإنترنت وحاول مرة أخرى.';if(/permission-denied|unauthenticated/i.test(raw))return 'لا يمكن تنفيذ الطلب حاليًا. حدّث الصفحة ثم حاول مرة أخرى.';return fallback||'حدث خطأ غير متوقع.';}
 function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 function normalizeText(v){return String(v||'').trim().toLowerCase().replace(/\s+/g,' ');}
 function phoneDigits(v){return String(v||'').replace(/\D/g,'');}
@@ -104,6 +104,7 @@ function refreshActiveViews(){
     if(document.getElementById('publicLeaderboard')) renderPublicLeaderboard();
     if(document.getElementById('reviewsList')) renderReviews();
     if(document.getElementById('bookingPreview')) renderBookingPreview();
+    if(document.getElementById('bookingGroup')) renderBookingScheduleOptions();
     if(path==='materials.html') renderUnifiedResourcesPage();
   }catch(e){}
 }
@@ -114,8 +115,14 @@ function setupTheme(){
 function fillSelects(){
   const grade=document.getElementById('bookingGrade'); if(grade) grade.innerHTML=GRADES.map(g=>`<option>${esc(g)}</option>`).join('');
   const month=document.getElementById('bookingMonth'); if(month) month.innerHTML=MONTHS.map(m=>`<option>${esc(m)}</option>`).join('');
+  if(grade&&!grade.dataset.scheduleBound){grade.dataset.scheduleBound='true';grade.addEventListener('change',()=>{const search=document.getElementById('bookingGroupSearch');if(search)search.value='';renderBookingScheduleOptions();});}
+  const groupSearch=document.getElementById('bookingGroupSearch');if(groupSearch&&!groupSearch.dataset.bound){groupSearch.dataset.bound='true';groupSearch.addEventListener('input',renderBookingScheduleOptions);}
+  renderBookingScheduleOptions();
 }
-function groupOptions(){const base=['مجموعة السبت والثلاثاء','مجموعة الأحد والأربعاء','مجموعة الاثنين والخميس','أونلاين متابعة']; const fromData=(appData.groups||[]).map(g=>g.name||g.group||g.title).filter(Boolean); const fromStudents=(appData.students||[]).map(s=>s.group).filter(Boolean); return [...new Set([...base,...fromData,...fromStudents])];}
+function activeSchedulesForGrade(grade){return (appData.groups||[]).filter(item=>item&&item.active!==false&&(item.grade==='كل الصفوف'||!item.grade||item.grade===grade));}
+function scheduleOptionLabel(item){const time=[item.startTime,item.endTime].filter(Boolean).join(' - ');return [item.name,item.days,time].filter(Boolean).join(' — ');}
+function renderBookingScheduleOptions(){const select=document.getElementById('bookingGroup');if(!select)return;const grade=document.getElementById('bookingGrade')?.value||GRADES[0],query=normalizeText(document.getElementById('bookingGroupSearch')?.value||'');const allSchedules=activeSchedulesForGrade(grade),schedules=query?allSchedules.filter(item=>normalizeText([item.name,item.days,item.startTime,item.endTime].filter(Boolean).join(' ')).includes(query)):allSchedules;const currentId=document.getElementById('bookingScheduleId')?.value||'';const submit=document.querySelector('#bookingForm button[type="submit"]'),hint=document.getElementById('bookingGroupHint');if(!allSchedules.length){select.innerHTML='<option value="">لا توجد مجموعات متاحة لهذا الصف حاليًا</option>';select.disabled=true;if(submit)submit.disabled=true;if(hint)hint.textContent='لم يضف المدرس مجموعة متاحة لهذا الصف بعد.';document.getElementById('bookingScheduleId').value='';return;}select.disabled=false;if(!schedules.length){select.innerHTML='<option value="">لا توجد مجموعة مطابقة للبحث</option>';if(submit)submit.disabled=true;if(hint)hint.textContent='جرّب كتابة جزء أقصر من اسم المجموعة أو امسح البحث.';document.getElementById('bookingScheduleId').value='';return;}if(submit)submit.disabled=false;select.innerHTML='<option value="">اختر من '+schedules.length+' مجموعة متاحة</option>'+schedules.map(item=>`<option value="${esc(item.name||'')}" data-schedule-id="${esc(item.id||'')}">${esc(scheduleOptionLabel(item))}</option>`).join('');const retained=[...select.options].find(option=>option.dataset.scheduleId===currentId);if(retained)retained.selected=true;else document.getElementById('bookingScheduleId').value='';if(hint)hint.textContent=`متاح ${allSchedules.length} مجموعة للصف المختار${query?` — نتيجة البحث ${schedules.length}`:''}.`;select.onchange=()=>{const option=select.selectedOptions[0];document.getElementById('bookingScheduleId').value=option?.dataset.scheduleId||'';};}
+function groupOptions(){return (appData.groups||[]).filter(item=>item&&item.active!==false).map(item=>item.name).filter(Boolean);}
 function calcStudent(st){
   const attendance = getAttendanceRows(st);
   const total = attendance.length;
@@ -235,7 +242,7 @@ function studentProfileHTML(raw, isParent=false){
       <article><span data-icon="bar-chart"></span><b>${c.final}%</b><small>المستوى العام</small></article>
       <article><span data-icon="star"></span><b>${c.avg}%</b><small>متوسط الدرجات</small></article>
       <article><span data-icon="calendar"></span><b>${c.attendancePct}%</b><small>نسبة الحضور</small></article>
-      <article class="${st.paid?'paid':'unpaid'}"><span data-icon="clipboard"></span><b>${st.paid?'تم':'معلق'}</b><small>حالة الدفع</small></article>
+      <article class="${st.paid?'paid':'unpaid'}"><span data-icon="clipboard"></span><b>${st.paid?'تم الدفع':'لم يتم الدفع'}</b><small>حالة الدفع</small></article>
     </section>
     <nav class="student-tabbar" aria-label="أقسام ملف الطالب">
       <button class="active" type="button" data-student-tab="overview"><span data-icon="sparkles"></span><span>الملخص</span></button>
@@ -321,7 +328,7 @@ function parentReportText(raw){
   const rows = studentReportRows(st);
   const lastGrade = rows.grades.filter(g=>g.score!==undefined && g.score!==null && g.score!=='').slice(-1)[0];
   const lastAttendance = rows.attendance.slice(0,6).map(r=>`- ${r.date || '-'}: ${arStatus(r.status)} ${r.time ? '('+r.time+')' : ''}`).join('\n') || '- لا توجد سجلات حضور بعد';
-  return `تقرير متابعة شهر ${monthLabel(st)}\n\nالطالب: ${st.name || '-'}\nالكود: ${st.studentCode || '-'}\nالصف: ${st.grade || '-'}\nالمجموعة: ${st.group || '-'}\n\nملخص الحالة:\n- المستوى العام: ${c.final}% - ${c.level}\n- نسبة الحضور: ${c.attendancePct}%\n- متوسط الدرجات: ${c.avg}%\n- حالة الدفع: ${st.paid ? 'تم الدفع' : 'لم يدفع'}\n\nآخر درجة: ${lastGrade ? (lastGrade.exam || lastGrade.examTitle || 'امتحان') + ' - ' + (lastGrade.score ?? 'بانتظار التصحيح') : 'لا توجد درجات بعد'}\n\nالحضور والغياب:\n${lastAttendance}\n\nملاحظات المدرس:\n${st.notes || 'لا توجد ملاحظات حالية.'}\n\nمع تحيات مستر محمود إبراهيم فوزي`;
+  return `تقرير متابعة شهر ${monthLabel(st)}\n\nالطالب: ${st.name || '-'}\nالكود: ${st.studentCode || '-'}\nالصف: ${st.grade || '-'}\nالمجموعة: ${st.group || '-'}\n\nملخص الحالة:\n- المستوى العام: ${c.final}% - ${c.level}\n- نسبة الحضور: ${c.attendancePct}%\n- متوسط الدرجات: ${c.avg}%\n- اشتراك السنتر: ${st.paid ? 'تم الدفع في السنتر' : 'لم يتم الدفع في السنتر'}\n\nآخر درجة: ${lastGrade ? (lastGrade.exam || lastGrade.examTitle || 'امتحان') + ' - ' + (lastGrade.score ?? 'بانتظار التصحيح') : 'لا توجد درجات بعد'}\n\nالحضور والغياب:\n${lastAttendance}\n\nملاحظات المدرس:\n${st.notes || 'لا توجد ملاحظات حالية.'}\n\nمع تحيات مستر محمود إبراهيم فوزي`;
 }
 
 function parentReportHTML(raw){
@@ -347,7 +354,7 @@ function parentReportHTML(raw){
           <div class="parent-report-tags-v40">
             <span>${esc(st.grade || '-')}</span>
             <span>${esc(st.group || '-')}</span>
-            <span class="badge ${payClass}">${st.paid?'تم الدفع':'لم يدفع'}</span>
+            <span class="badge ${payClass}">${st.paid?'تم الدفع في السنتر':'لم يتم الدفع في السنتر'}</span>
           </div>
         </div>
         <div class="parent-report-qr-v40"><b>QR الطالب</b>${makeQR(qrValue(st))}<small>${esc(qrValue(st))}</small></div>
@@ -387,8 +394,8 @@ function parentReportHTML(raw){
       <div class="mini-panel parent-panel-v40 parent-pay-v40">
         <h3>الدفع والشهر</h3>
         <p><b>الشهر:</b> ${esc(monthLabel(st))}</p>
-        <p><b>حالة الدفع:</b> <span class="badge ${payClass}">${st.paid?'تم الدفع':'لم يدفع'}</span></p>
-        ${st.paymentDate?`<p><b>تاريخ الدفع:</b> ${esc(st.paymentDate)}</p>`:''}
+        <p><b>حالة الدفع:</b> <span class="badge ${payClass}">${st.paid?'تم الدفع في السنتر':'لم يتم الدفع في السنتر'}</span></p>
+        ${st.paymentDate?`<p><b>تاريخ التسجيل:</b> ${esc(st.paymentDate)}</p>`:''}
       </div>
     </div>
     <div class="report-footer-v40">مع تحيات ${esc(teacherName)}</div>
@@ -477,6 +484,11 @@ function setupBooking(){
       e.preventDefault();
       const button=form.querySelector('button[type="submit"]');
       const b=Object.fromEntries(new FormData(form).entries());
+      const selectedSchedule=document.getElementById('bookingGroup')?.selectedOptions?.[0];
+      b.scheduleId=selectedSchedule?.dataset?.scheduleId||'';
+      b.group=selectedSchedule?.value||b.group||'';
+      b.academicYear=typeof currentAcademicContext==='function'?currentAcademicContext().academicYear:'';
+      if(!b.scheduleId||!b.group)return toast('اختار مجموعة وموعدًا متاحًا أولًا');
       if(phoneDigits(b.studentPhone)===phoneDigits(b.parentPhone)) return toast('رقم ولي الأمر لازم يكون مختلف عن رقم الطالب');
       if(!window.MFCloud?.ready || !window.MFCloud?.createBooking) return toast('خدمة الحجز غير متاحة حاليًا. حاول لاحقًا.');
       button?.classList.add('is-loading'); if(button)button.disabled=true;
@@ -534,7 +546,7 @@ function setupReviews(){
   });
 }
 function setupStarInputs(){document.querySelectorAll('[data-star-input]').forEach(w=>{const input=w.querySelector('input'); const label=w.querySelector('span'); const buttons=[...w.querySelectorAll('button')]; const paint=n=>{buttons.forEach(b=>b.classList.toggle('active',Number(b.dataset.rate)<=n)); if(label) label.textContent=n+' نجوم';}; buttons.forEach(b=>b.onclick=()=>{input.value=b.dataset.rate; paint(Number(b.dataset.rate));}); paint(Number(input?.value||5));});}
-function renderReviews(){const box=document.getElementById('reviewsList'); if(!box) return; const rows=(appData.reviews||[]).filter(r=>r.approved!==false).slice(-6).reverse(); box.innerHTML=rows.length?rows.map(r=>`<div class="card"><div class="review-stars">${'★'.repeat(Number(r.rating||5))}</div><h3>${esc(r.name)}</h3><span class="badge">${esc(r.role||'طالب')}</span><p>${esc(r.text||'')}</p></div>`).join(''):`<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="star"></span><h3>لا توجد تقييمات منشورة بعد</h3><p>التقييمات الجديدة تظهر بعد مراجعة المدرس.</p></div>`; hydrateIcons();}
+function renderReviews(){const box=document.getElementById('reviewsList');if(!box)return;const rows=(appData.reviews||[]).filter(r=>r.approved!==false).slice(-8).reverse();box.innerHTML=rows.length?rows.map(r=>{const name=String(r.name||'طالب').trim(),initials=name.split(/\s+/).slice(0,2).map(part=>part[0]||'').join('');return `<article class="review-display-card"><header><span class="review-avatar">${esc(initials||'ط')}</span><div><h3>${esc(name)}</h3><small>${esc(r.role||'طالب')}</small></div><div class="review-stars">${'★'.repeat(Number(r.rating||5))}</div></header><p>${esc(r.text||'')}</p><footer><span data-icon="user-check"></span> تقييم تم اعتماده</footer></article>`;}).join(''):`<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="star"></span><h3>لا توجد تقييمات منشورة بعد</h3><p>التقييمات الجديدة تظهر بعد مراجعة المدرس.</p></div>`;hydrateIcons();}
 function attachmentHtml(item){if(item.fileData||item.fileUrl){const url=item.fileData||item.fileUrl; if(String(item.fileType||item.type||'').includes('image')||/\.(png|jpe?g|webp|gif)$/i.test(url)) return `<img class="attach-preview" src="${esc(url)}" alt="${esc(item.title||'ملف')}">`; return `<a class="btn ghost" target="_blank" rel="noreferrer" href="${esc(url)}"><span data-icon="external-link"></span> فتح الملف</a>`;} return '';}
 function resourceCard(x, kind){return `<div class="card resource-card"><div class="resource-top"><span class="iconbox" data-icon="${kind==='question'?'help-circle':'book-open'}"></span><span class="badge">${esc(x.grade||'كل الصفوف')}</span></div><h3>${esc(x.title||'بدون عنوان')}</h3><p>${esc(x.desc||x.content||'')}</p>${attachmentHtml(x)}${x.answer?`<div class="written-box">الإجابة: ${esc(x.answer)}</div>`:''}</div>`;}
 function renderUnifiedResourcesPage(){const m=document.getElementById('materialsPageGrid'); const q=document.getElementById('questionsPageGrid'); if(m) m.innerHTML=(appData.materials||[]).length?(appData.materials||[]).map(x=>resourceCard(x,'material')).join(''):'<p class="section-desc">لا توجد مراجعات مضافة حاليًا.</p>'; if(q) q.innerHTML=(appData.questions||[]).length?(appData.questions||[]).map(x=>resourceCard(x,'question')).join(''):'<p class="section-desc">لا توجد أسئلة مضافة حاليًا.</p>'; hydrateIcons();}
@@ -586,7 +598,7 @@ function renderExamPortal(st,exams){
     return `<article class="exam-portal-card ${done?'completed':''}"><div class="exam-card-top"><span class="iconbox" data-icon="clipboard"></span><div class="exam-card-badges"><span class="badge">${esc(ex.duration||20)} دقيقة</span><span class="badge">${esc(ex.questionCount||'-')} سؤال</span>${draft&&!done?'<span class="badge warn">محاولة محفوظة</span>':''}</div></div><h3>${esc(ex.title)}</h3><p>${esc(ex.instructions||'اقرأ كل سؤال جيدًا قبل اختيار الإجابة.')}</p><button class="btn ${done?'ghost':'primary'} exam-start-btn" type="button" data-exam-id="${esc(ex.id)}" data-student-code="${esc(st.studentCode)}" ${done?'disabled':''}><span data-icon="${done?'user-check':'clipboard'}"></span>${done?'تم تسليم الامتحان':draft?'متابعة الامتحان':'بدء الامتحان'}</button></article>`;
   }).join('');
   const resultCards=attempts.length?attempts.map(a=>{const ready=a.score!==null&&a.score!==undefined&&a.score!=='';return `<article class="exam-result-card"><div><span class="record-eyebrow">${esc(formatPortalDate(a.submittedAt))}</span><h4>${esc(a.examTitle||'امتحان')}</h4><small>${a.needsManualReview?'ينتظر تصحيح الأسئلة المقالية':'تم التصحيح الآمن على الخادم'}</small></div><strong class="score-pill ${ready?scoreClass(a.score):'warn'}">${ready?esc(a.score)+'%':'قيد التصحيح'}</strong></article>`;}).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد محاولات بعد</h3><p>ستظهر نتائجك هنا بعد التسليم.</p></div>';
-  box.innerHTML=`<section class="exam-student-banner"><span class="student-avatar">${esc(String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join(''))}</span><div><small>امتحانات الطالب</small><h2>${esc(st.name)}</h2><p>${esc(st.grade||'')} <span>•</span> ${esc(st.studentCode)}</p></div></section><div class="exam-security-note"><span data-icon="user-check"></span><div><b>التصحيح مؤمّن</b><small>الإجابات الصحيحة لا تُرسل إلى جهاز الطالب، والتصحيح يتم داخل Firebase Cloud Functions.</small></div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="clipboard"></span> المتاح الآن</span><h3>الامتحانات المتاحة</h3></div><span class="badge">${currentSecureExams.length} امتحان</span></div><div class="exam-portal-grid">${available||'<div class="portal-empty"><span class="iconbox" data-icon="clipboard"></span><h3>لا توجد امتحانات حاليًا</h3><p>ستظهر امتحانات صفك هنا فور نشرها.</p></div>'}</div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="bar-chart"></span> النتائج</span><h3>سجل الامتحانات</h3></div><span class="badge good">${attempts.length} محاولة</span></div><div class="exam-results-grid">${resultCards}</div></div>`;
+  box.innerHTML=`<section class="exam-student-banner"><span class="student-avatar">${esc(String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join(''))}</span><div><small>امتحانات الطالب</small><h2>${esc(st.name)}</h2><p>${esc(st.grade||'')} <span>•</span> ${esc(st.studentCode)}</p></div></section><div class="exam-security-note"><span data-icon="user-check"></span><div><b>التصحيح مؤمّن</b><small>الإجابات النموذجية تظل محمية، ويتم التصحيح تلقائيًا وبأمان بعد التسليم.</small></div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="clipboard"></span> المتاح الآن</span><h3>الامتحانات المتاحة</h3></div><span class="badge">${currentSecureExams.length} امتحان</span></div><div class="exam-portal-grid">${available||'<div class="portal-empty"><span class="iconbox" data-icon="clipboard"></span><h3>لا توجد امتحانات حاليًا</h3><p>ستظهر امتحانات صفك هنا فور نشرها.</p></div>'}</div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="bar-chart"></span> النتائج</span><h3>سجل الامتحانات</h3></div><span class="badge good">${attempts.length} محاولة</span></div><div class="exam-results-grid">${resultCards}</div></div>`;
   box.querySelectorAll('.exam-start-btn').forEach(btn=>btn.addEventListener('click',()=>window.startExam(btn.dataset.examId,btn.dataset.studentCode)));
   hydrateIcons();
 }
@@ -602,7 +614,7 @@ function setupExamsPage(){
       const dashboard=await window.MFCloud?.getExamDashboard?.(code);
       if(!dashboard?.student)throw new Error('not-found');
       renderExamPortal(dashboard.student,dashboard.exams||[]);
-    }catch(err){box.innerHTML=`<div class="portal-empty"><span class="iconbox" data-icon="search"></span><h3>تعذر فتح الامتحانات</h3><p>${esc(firebaseFriendlyError(err,'تأكد من كود الطالب وإعداد Cloud Functions.'))}</p></div>`;hydrateIcons();}
+    }catch(err){box.innerHTML=`<div class="portal-empty"><span class="iconbox" data-icon="search"></span><h3>تعذر فتح الامتحانات</h3><p>${esc(firebaseFriendlyError(err,'تأكد من كود الطالب واتصال الإنترنت ثم حاول مرة أخرى.'))}</p></div>`;hydrateIcons();}
     finally{button?.classList.remove('is-loading');if(button)button.disabled=false;}
   });
 }
@@ -623,7 +635,7 @@ window.startExam=async function(examId,studentCode){
       if(!session?.sessionId||!Array.isArray(session.questions))throw new Error('Secure session unavailable');
       draft={examId:String(examId),studentCode:String(studentCode),sessionId:session.sessionId,questions:session.questions,exam:session.exam||metadata,answers:{},startedAt:session.startedAt,expiresAt:Number(session.expiresAt),current:0};
       saveExamDraft(examId,studentCode,draft);
-    }catch(err){return toast(firebaseFriendlyError(err,'تعذر بدء الامتحان. راجع إعداد Cloud Functions.'));}
+    }catch(err){return toast(firebaseFriendlyError(err,'تعذر بدء الامتحان الآن. حدّث الصفحة وحاول مرة أخرى.'));}
   }
   const ex=draft.exam||metadata,qs=draft.questions;
   if(!qs.length)return toast('الامتحان لا يحتوي على أسئلة صالحة');
@@ -657,8 +669,22 @@ function setupAdminLink(){document.querySelectorAll('a[href="teacher-login.html"
 window.startStudentScanner=async function(){const box=document.getElementById('qrScannerBox'), video=document.getElementById('qrScannerVideo'); if(!box||!video) return; box.hidden=false; try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}); video.srcObject=stream; await video.play(); toast('وجّه الكاميرا على QR الطالب'); if('BarcodeDetector' in window){const detector=new BarcodeDetector({formats:['qr_code']}); const loop=async()=>{if(box.hidden) return; try{const codes=await detector.detect(video); if(codes.length){document.getElementById('studentQuery').value=codes[0].rawValue; stopStudentScanner(); document.getElementById('studentSearchForm').requestSubmit(); return;}}catch(e){} requestAnimationFrame(loop);}; loop();} }catch(e){toast('تعذر فتح الكاميرا');}};
 window.stopStudentScanner=function(){const box=document.getElementById('qrScannerBox'), video=document.getElementById('qrScannerVideo'); if(video?.srcObject) video.srcObject.getTracks().forEach(t=>t.stop()); if(box) box.hidden=true;};
 function setupActiveNavigation(){
-  const file=(location.pathname.split('/').pop()||'index.html');
-  document.querySelectorAll('.navlinks a,.mobile-bottom a').forEach(a=>{const href=(a.getAttribute('href')||'').split('#')[0]||'index.html';a.classList.toggle('active',href===file||(file===''&&href==='index.html'));});
+  const mobileNav=document.querySelector('.mobile-bottom');
+  document.body.classList.toggle('mobile-nav-active',!!mobileNav);
+  const update=()=>{
+    const currentFile=location.pathname.split('/').pop()||'index.html';
+    const currentHash=location.hash||'';
+    document.querySelectorAll('.navlinks a,.mobile-bottom a').forEach(a=>{
+      const url=new URL(a.getAttribute('href')||'',location.href);
+      const linkFile=url.pathname.split('/').pop()||'index.html';
+      const sameFile=linkFile===currentFile;
+      const active=sameFile&&(url.hash?url.hash===currentHash:!currentHash);
+      a.classList.toggle('active',active);
+      if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
+    });
+  };
+  update();
+  window.addEventListener('hashchange',update);
 }
 function registerServiceWorker(){if('serviceWorker' in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}}
 function setupPWAInstall(){

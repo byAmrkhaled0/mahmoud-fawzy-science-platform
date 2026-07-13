@@ -5,6 +5,10 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <meta content="#155eef" name="theme-color"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="منصة العلوم"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
 <link href="assets/logo-icon.svg" rel="icon" type="image/svg+xml"/>
 <link href="assets/icon-192.png" rel="apple-touch-icon"/>
@@ -27,9 +31,9 @@
 <h1 class="hero-title">تقييمك يساعدنا نطوّر تجربة التعلم مع <span>مستر محمود</span></h1>
 <p class="hero-sub">اختار عدد النجوم واكتب رأيك، والتقييم يظهر بعد موافقة المدرس.</p>
 </div>
-<div class="card">
+<div class="card review-submit-card">
 <h3>تقييم سريع</h3>
-<form class="grid grid-2" id="reviewForm">
+<form class="grid grid-2 review-submit-form" id="reviewForm">
 <div class="field"><label>الاسم</label><input name="name" placeholder="اسمك" required=""/></div>
 <div class="field"><label>الصفة</label><select name="role"><option>طالب</option><option>ولي أمر</option></select></div>
 <div class="field rating-field"><label>التقييم</label><div class="star-input" data-star-input=""><input name="rating" type="hidden" value="5"/><button data-rate="1" type="button">★</button><button data-rate="2" type="button">★</button><button data-rate="3" type="button">★</button><button data-rate="4" type="button">★</button><button data-rate="5" type="button">★</button><span>5 نجوم</span></div></div>
@@ -42,7 +46,7 @@
 <section class="section tight">
 <div class="container">
 <div class="section-head"><div><span class="kicker"><span data-icon="users"></span> آراء حقيقية بعد الربط</span><h2 class="section-title">تقييمات الطلاب وأولياء الأمور</h2></div></div>
-<div class="grid grid-3" id="reviewsList"></div>
+<div class="reviews-list-polished" id="reviewsList"></div>
 </div>
 </section>
 </main>
@@ -73,5 +77,6 @@
 <script src="assets/firebase-config.js"></script>
 <script src="assets/firebase-sync.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/v53-upgrades.js"></script>
 </body>
 </html>

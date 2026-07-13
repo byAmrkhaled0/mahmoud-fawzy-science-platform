@@ -1,6 +1,6 @@
 {
   "name": "mahmoud-fawzy-science-platform-stable",
-  "version": "51.0.0",
+  "version": "53.0.0",
   "private": true,
   "scripts": {
     "dev": "node local-server.js",

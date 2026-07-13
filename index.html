@@ -5,6 +5,10 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <meta content="#155eef" name="theme-color"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="منصة العلوم"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
 <title>مستر محمود إبراهيم فوزي | علوم الإعدادي وأحياء الثانوي</title>
 <meta content="موقع مستر محمود إبراهيم فوزي للعلوم: حجز شهري، مراجعات وبنك أسئلة، امتحانات شهرية، وبوابة طالب منظمة." name="description"/>
@@ -81,9 +85,9 @@
 <div class="container">
 <div class="section-head booking-head-clean">
 <div>
-<span class="kicker"><span data-icon="calendar"></span> الحجز الشهري</span>
-<h2 class="section-title">احجز اشتراك الطالب حسب الصف والشهر</h2>
-<p class="section-desc">اكتب بيانات الطالب وسيظهر لك كود الحجز مباشرة. احتفظ بالكود لمتابعة حالة الطلب بدون عرض أي بيانات طلاب للزوار.</p>
+<span class="kicker"><span data-icon="calendar"></span> حجز المجموعة</span>
+<h2 class="section-title">اختار الصف ثم المجموعة والموعد المناسب</h2>
+<p class="section-desc">بعد اختيار الصف ستظهر فقط المجموعات المتاحة له بالأيام والوقت الذي حدده المدرس.</p>
 </div>
 <a class="btn ghost" href="student.html"><span data-icon="user"></span> عندي كود طالب</a>
 </div>
@@ -94,7 +98,8 @@
 <div class="field"><label>رقم ولي الأمر</label><input name="parentPhone" placeholder="رقم ولي الأمر وليس رقم الطالب" inputmode="tel" required=""/><small class="field-hint">لازم يكون رقم ولي الأمر مختلف عن رقم الطالب.</small></div>
 <div class="field"><label>الصف الدراسي</label><select id="bookingGrade" name="grade" required=""></select></div>
 <div class="field"><label>شهر الاشتراك</label><select id="bookingMonth" name="month" required=""></select></div>
-<div class="field"><label>المجموعة المناسبة</label><select name="group" required=""><option>مجموعة السبت والثلاثاء</option><option>مجموعة الأحد والأربعاء</option><option>مجموعة الاثنين والخميس</option><option>أونلاين متابعة</option></select></div>
+<div class="field"><label>الترم</label><select id="bookingTerm" name="term" required=""></select></div>
+<div class="field booking-group-picker"><label>ابحث عن مجموعتك واختار الموعد</label><div class="group-search-wrap"><span data-icon="search"></span><input id="bookingGroupSearch" type="search" placeholder="اكتب اسم المجموعة أو اليوم" autocomplete="off"/></div><select id="bookingGroup" name="group" required=""><option value="">جاري تحميل المواعيد...</option></select><input id="bookingScheduleId" name="scheduleId" type="hidden"/><small class="field-hint" id="bookingGroupHint">اختار الصف أولًا، ثم ابحث باسم مجموعتك أو يوم الحصة.</small></div>
 <div class="field" style="grid-column:1/-1"><label>ملاحظات</label><textarea name="notes" placeholder="أي تفاصيل مهمة عن الطالب أو المستوى"></textarea></div>
 <button class="btn primary" style="grid-column:1/-1" type="submit"><span data-icon="send"></span> تسجيل الحجز وإظهار الكود</button>
 </form>
@@ -191,5 +196,6 @@
 <script src="assets/firebase-config.js"></script>
 <script src="assets/firebase-sync.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/v53-upgrades.js"></script>
 </body>
 </html>

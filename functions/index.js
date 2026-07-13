@@ -1,8 +1,10 @@
 'use strict';
 
 const crypto = require('crypto');
+const zlib = require('zlib');
 const admin = require('firebase-admin');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2/options');
 
 admin.initializeApp();
@@ -11,7 +13,9 @@ setGlobalOptions({ region: 'europe-west1', maxInstances: 10, memory: '256MiB' })
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 const Timestamp = admin.firestore.Timestamp;
-const CALLABLE_OPTIONS = { region: 'europe-west1', timeoutSeconds: 30 };
+// Callable endpoints must accept the browser's unauthenticated CORS preflight.
+// Sensitive operations still enforce staff authentication inside each handler.
+const CALLABLE_OPTIONS = { region: 'europe-west1', timeoutSeconds: 30, invoker: 'public' };
 
 function cleanDocId(value) {
   return String(value || '').trim().replace(/[\\/#?\[\]]/g, '-');
@@ -183,7 +187,7 @@ function mcqCorrect(question, chosenIndex) {
     || (answerToken && normalizeAnswer(answerToken) === normalizeAnswer(label));
 }
 
-function portalResponse(data, attempts) {
+function portalResponse(data, attempts, records = {}) {
   return {
     studentCode: text(data.studentCode || data.code, 40),
     name: text(data.studentName || data.name, 100),
@@ -191,13 +195,15 @@ function portalResponse(data, attempts) {
     grade: text(data.grade, 80),
     group: text(data.group, 100),
     month: text(data.month, 40),
+    academicYear: text(data.academicYear, 20),
+    term: text(data.term, 40),
     paid: data.paid === true,
     paymentDate: text(data.paymentDate, 40),
     notes: text(data.notes, 1500),
-    attendance: Array.isArray(data.attendance) ? data.attendance.slice(-120) : [],
-    grades: Array.isArray(data.grades) ? data.grades.slice(-120) : [],
-    homeworks: Array.isArray(data.homeworks) ? data.homeworks.slice(-120) : [],
-    recitations: Array.isArray(data.recitations) ? data.recitations.slice(-120) : [],
+    attendance: Array.isArray(records.attendance) ? records.attendance.slice(-120) : (Array.isArray(data.attendance) ? data.attendance.slice(-120) : []),
+    grades: Array.isArray(records.grades) ? records.grades.slice(-120) : (Array.isArray(data.grades) ? data.grades.slice(-120) : []),
+    homeworks: Array.isArray(records.homeworks) ? records.homeworks.slice(-120) : (Array.isArray(data.homeworks) ? data.homeworks.slice(-120) : []),
+    recitations: Array.isArray(records.recitations) ? records.recitations.slice(-120) : (Array.isArray(data.recitations) ? data.recitations.slice(-120) : []),
     examAttempts: Array.isArray(attempts) ? attempts.slice(-120) : []
   };
 }
@@ -238,13 +244,27 @@ async function attemptSummaries(studentCode) {
   }));
 }
 
+async function studentRecords(studentCode) {
+  const normalized = normalizeCode(studentCode);
+  const load = async collection => {
+    const snap = await db.collection(collection).where('studentCode', '==', normalized).get().catch(() => null);
+    return snap ? snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
+  };
+  const [attendance, grades, homeworks, recitations] = await Promise.all([
+    load('attendance'), load('grades'), load('homework_submissions'), load('recitations')
+  ]);
+  const byDate = rows => rows.sort((a, b) => String(a.date || a.submittedAt || a.createdAt || '').localeCompare(String(b.date || b.submittedAt || b.createdAt || '')));
+  return { attendance: byDate(attendance), grades: byDate(grades), homeworks: byDate(homeworks), recitations: byDate(recitations) };
+}
+
 exports.getPortalStudent = onCall(CALLABLE_OPTIONS, async request => {
   const code = normalizeCode(request.data && request.data.code);
   const mode = request.data && request.data.mode === 'parent' ? 'parent' : 'student';
   await rateLimitPublic(`portal-${mode}`, code, request, 8, 35, 60 * 1000);
   const found = mode === 'parent' ? await getParentPortalByCode(code) : await getStudentPortalByCode(code);
-  const attempts = await attemptSummaries(found.data.studentCode || found.data.code);
-  return portalResponse(found.data, attempts);
+  const studentCode = found.data.studentCode || found.data.code;
+  const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
+  return portalResponse(found.data, attempts, records);
 });
 
 exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
@@ -276,14 +296,12 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
       grade: text(body.grade, 80),
       month: text(body.month, 40),
       group: text(body.group, 100),
+      academicYear: text(body.academicYear, 20),
+      term: text(body.term, 40),
       notes: text(body.notes, 1500),
       paid: body.paid === true,
       paymentDate: text(body.paymentDate, 40),
       active: body.active !== false,
-      attendance: [],
-      grades: [],
-      homeworks: [],
-      recitations: [],
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     };
@@ -297,6 +315,8 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
       studentName: name,
       grade: student.grade,
       group: student.group,
+      academicYear: student.academicYear,
+      term: student.term,
       paid: student.paid,
       paymentDate: student.paymentDate,
       updatedAt: FieldValue.serverTimestamp()
@@ -330,6 +350,13 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   if (name.length < 3) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب كاملًا.');
   if (studentPhone.length < 10 || parentPhone.length < 10) throw new HttpsError('invalid-argument', 'اكتب أرقام هاتف صحيحة.');
   if (studentPhone === parentPhone) throw new HttpsError('invalid-argument', 'رقم الطالب يجب أن يختلف عن رقم ولي الأمر.');
+  const requestedScheduleId = cleanDocId(text(body.scheduleId, 100));
+  if (!requestedScheduleId) throw new HttpsError('invalid-argument', 'اختار مجموعة وموعدًا متاحًا.');
+  const scheduleSnap = await db.collection('groups').doc(requestedScheduleId).get();
+  if (!scheduleSnap.exists || scheduleSnap.data().active === false) throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
+  const schedule = scheduleSnap.data();
+  const requestedGrade = text(body.grade, 80);
+  if (schedule.grade && schedule.grade !== 'كل الصفوف' && schedule.grade !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
   const code = await uniqueCode('bookings', 'BK');
   const payload = {
     id: code,
@@ -338,9 +365,15 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     studentName: name,
     studentPhone: text(body.studentPhone, 20),
     parentPhone: text(body.parentPhone, 20),
-    grade: text(body.grade, 80),
+    grade: requestedGrade,
     month: text(body.month, 40),
-    group: text(body.group, 100),
+    group: text(schedule.name, 100),
+    scheduleId: requestedScheduleId,
+    scheduleDays: text(schedule.days, 100),
+    scheduleStartTime: text(schedule.startTime, 20),
+    scheduleEndTime: text(schedule.endTime, 20),
+    academicYear: text(body.academicYear, 20),
+    term: text(body.term, 40),
     notes: text(body.notes, 1000),
     status: 'بانتظار الموافقة',
     date: new Date().toISOString().slice(0, 10),
@@ -353,6 +386,12 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     grade: payload.grade,
     month: payload.month,
     group: payload.group,
+    scheduleId: payload.scheduleId,
+    scheduleDays: payload.scheduleDays,
+    scheduleStartTime: payload.scheduleStartTime,
+    scheduleEndTime: payload.scheduleEndTime,
+    academicYear: payload.academicYear,
+    term: payload.term,
     status: payload.status,
     studentCode: '',
     parentCode: '',
@@ -379,6 +418,12 @@ exports.getBookingStatus = onCall(CALLABLE_OPTIONS, async request => {
     grade: text(data.grade, 80),
     month: text(data.month, 40),
     group: text(data.group, 100),
+    scheduleId: text(data.scheduleId, 100),
+    scheduleDays: text(data.scheduleDays, 100),
+    scheduleStartTime: text(data.scheduleStartTime, 20),
+    scheduleEndTime: text(data.scheduleEndTime, 20),
+    academicYear: text(data.academicYear, 20),
+    term: text(data.term, 40),
     status: text(data.status, 100),
     studentCode: text(data.studentCode, 40),
     parentCode: text(data.parentCode, 40)
@@ -406,6 +451,23 @@ exports.createReview = onCall(CALLABLE_OPTIONS, async request => {
   return { ok: true };
 });
 
+function examMatchesStudent(exam, student) {
+  const gradeOk = !exam.grade || exam.grade === 'كل الصفوف' || exam.grade === student.grade;
+  const groupOk = !exam.group || exam.group === 'كل المجموعات' || exam.group === student.group;
+  const yearOk = !exam.academicYear || !student.academicYear || exam.academicYear === student.academicYear;
+  const termOk = !exam.term || !student.term || exam.term === student.term;
+  return gradeOk && groupOk && yearOk && termOk;
+}
+
+function examIsOpen(exam, now = Date.now()) {
+  if (exam.active === false) return false;
+  const openAt = exam.openAt ? new Date(exam.openAt).getTime() : 0;
+  const closeAt = exam.closeAt ? new Date(exam.closeAt).getTime() : 0;
+  if (openAt && Number.isFinite(openAt) && now < openAt) return false;
+  if (closeAt && Number.isFinite(closeAt) && now > closeAt) return false;
+  return true;
+}
+
 exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
   const studentCode = normalizeCode(request.data && request.data.studentCode);
   await rateLimitPublic('exam-dashboard', studentCode, request, 10, 35, 60 * 1000);
@@ -413,18 +475,24 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
   const grade = text(found.data.grade, 80);
   const snap = await db.collection('exams').get();
   const exams = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-    .filter(exam => !exam.grade || exam.grade === grade || exam.grade === 'كل الصفوف')
-    .filter(exam => exam.active !== false)
+    .filter(exam => examMatchesStudent(exam, found.data))
+    .filter(exam => examIsOpen(exam))
     .map(exam => ({
       id: text(exam.id, 100),
       title: text(exam.title, 200),
       grade: text(exam.grade, 80),
+      group: text(exam.group, 100),
+      academicYear: text(exam.academicYear, 20),
+      term: text(exam.term, 40),
+      openAt: text(exam.openAt, 60),
+      closeAt: text(exam.closeAt, 60),
       duration: Math.max(1, Math.min(240, Number(exam.duration || 20))),
       instructions: text(exam.instructions, 1500),
       allowRetake: exam.allowRetake === true,
       questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length)
     }));
-  return { student: portalResponse(found.data, await attemptSummaries(studentCode)), exams };
+  const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
+  return { student: portalResponse(found.data, attempts, records), exams };
 });
 
 exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
@@ -435,9 +503,9 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
   const examSnap = await db.collection('exams').doc(examId).get();
   if (!examSnap.exists) throw new HttpsError('not-found', 'الامتحان غير موجود.');
   const exam = { id: examSnap.id, ...examSnap.data() };
-  if (exam.active === false) throw new HttpsError('failed-precondition', 'الامتحان غير متاح حاليًا.');
-  if (exam.grade && exam.grade !== 'كل الصفوف' && exam.grade !== found.data.grade) {
-    throw new HttpsError('permission-denied', 'هذا الامتحان غير مخصص لصفك.');
+  if (!examIsOpen(exam)) throw new HttpsError('failed-precondition', 'الامتحان غير متاح في الوقت الحالي.');
+  if (!examMatchesStudent(exam, found.data)) {
+    throw new HttpsError('permission-denied', 'هذا الامتحان غير مخصص لصفك أو مجموعتك أو عامك الدراسي.');
   }
   const questions = parseExamQuestions(exam.text || exam.questionsText || '');
   if (!questions.length) throw new HttpsError('failed-precondition', 'الامتحان لا يحتوي على أسئلة صالحة.');
@@ -478,6 +546,8 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
       studentName: text(found.data.studentName || found.data.name, 100),
       grade: text(found.data.grade, 80),
       group: text(found.data.group, 100),
+      academicYear: text(found.data.academicYear, 20),
+      term: text(found.data.term, 40),
       examTitle: text(exam.title, 200),
       instructions: text(exam.instructions, 1500),
       duration: durationMinutes,
@@ -587,6 +657,8 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
     studentName: text(session.studentName, 100),
     grade: text(session.grade, 80),
     group: text(session.group, 100),
+    academicYear: text(session.academicYear, 20),
+    term: text(session.term, 40),
     startedAt: session.startedAt && session.startedAt.toDate ? session.startedAt.toDate().toISOString() : submittedAt,
     submittedAt,
     score,
@@ -610,7 +682,9 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
     score,
     autoScore,
     needsManualReview,
-    status: attempt.status
+    status: attempt.status,
+    academicYear: attempt.academicYear,
+    term: attempt.term
   };
   const lockRef = db.collection('exam_locks').doc(cleanDocId(`${session.examId}_${studentCode}`));
   const studentAttemptsRef = db.collection('student_attempts').doc(cleanDocId(studentCode));
@@ -660,6 +734,8 @@ exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
     studentName: text(found.data.studentName || found.data.name, 100),
     grade: text(found.data.grade, 80),
     group: text(found.data.group, 100),
+    academicYear: text(found.data.academicYear, 20),
+    term: text(found.data.term, 40),
     fileName,
     fileUrl,
     url: fileUrl,
@@ -684,4 +760,230 @@ exports.reportClientError = onCall(CALLABLE_OPTIONS, async request => {
     createdAt: FieldValue.serverTimestamp()
   });
   return { ok: true };
+});
+
+
+const BACKUP_COLLECTIONS = [
+  'settings','users','students','student_portal','parent_portal','bookings','booking_status','reviews',
+  'materials','questions','groups','assignments','exams','exam_attempts','homework_submissions',
+  'attendance','recitations','grades','payments','reports','activityLog','client_errors',
+  'student_attempts','exam_locks'
+];
+
+function encodeBackupValue(value) {
+  if (value instanceof Timestamp) return { __mfType: 'timestamp', iso: value.toDate().toISOString() };
+  if (value instanceof admin.firestore.GeoPoint) return { __mfType: 'geopoint', latitude: value.latitude, longitude: value.longitude };
+  if (Array.isArray(value)) return value.map(encodeBackupValue);
+  if (value && typeof value === 'object') {
+    const output = {};
+    for (const [key, item] of Object.entries(value)) output[key] = encodeBackupValue(item);
+    return output;
+  }
+  return value;
+}
+
+function decodeBackupValue(value) {
+  if (Array.isArray(value)) return value.map(decodeBackupValue);
+  if (value && typeof value === 'object') {
+    if (value.__mfType === 'timestamp' && value.iso) return Timestamp.fromDate(new Date(value.iso));
+    if (value.__mfType === 'geopoint') return new admin.firestore.GeoPoint(Number(value.latitude), Number(value.longitude));
+    const output = {};
+    for (const [key, item] of Object.entries(value)) output[key] = decodeBackupValue(item);
+    return output;
+  }
+  return value;
+}
+
+async function exportCollection(collectionName) {
+  const snap = await db.collection(collectionName).get();
+  const rows = [];
+  for (const doc of snap.docs) {
+    const row = { id: doc.id, data: encodeBackupValue(doc.data()) };
+    if (collectionName === 'student_attempts') {
+      const attempts = await doc.ref.collection('attempts').get();
+      row.attempts = attempts.docs.map(attempt => ({ id: attempt.id, data: encodeBackupValue(attempt.data()) }));
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+async function createPlatformBackup(reason, actor = {}) {
+  const collections = {};
+  for (const name of BACKUP_COLLECTIONS) collections[name] = await exportCollection(name);
+  const payload = {
+    schemaVersion: 53,
+    backupFormatVersion: 2,
+    project: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'mahmoud-fawzy-science-platform',
+    reason: text(reason, 100),
+    createdAt: new Date().toISOString(),
+    actor: { uid: text(actor.uid, 120), email: text(actor.email, 200), role: text(actor.role, 40) },
+    collections
+  };
+  const buffer = zlib.gzipSync(Buffer.from(JSON.stringify(payload), 'utf8'), { level: 9 });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const name = `automatic-backups/${stamp}-${text(reason || 'scheduled', 40).replace(/[^a-zA-Z0-9_-]/g, '-')}.json.gz`;
+  const bucket = admin.storage().bucket();
+  await bucket.file(name).save(buffer, { resumable: false, contentType: 'application/gzip', metadata: { cacheControl: 'private, max-age=0', metadata: { schemaVersion: '53', reason: text(reason, 100) } } });
+  await db.collection('backup_runs').add({ name, reason: text(reason, 100), size: buffer.length, createdAt: FieldValue.serverTimestamp(), actorUid: text(actor.uid, 120) });
+  return { name, size: buffer.length, createdAt: payload.createdAt };
+}
+
+async function pruneBackups(retentionDays = 14) {
+  const bucket = admin.storage().bucket();
+  const [files] = await bucket.getFiles({ prefix: 'automatic-backups/' });
+  const cutoff = Date.now() - Math.max(3, Math.min(90, Number(retentionDays) || 14)) * 24 * 60 * 60 * 1000;
+  await Promise.all(files.filter(file => new Date(file.metadata.timeCreated || 0).getTime() < cutoff).map(file => file.delete().catch(() => null)));
+}
+
+exports.scheduledPlatformBackup = onSchedule({ schedule: '30 2 * * *', timeZone: 'Africa/Cairo', region: 'europe-west1', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+  const settings = await db.collection('settings').doc('platform').get().catch(() => null);
+  const retentionDays = settings?.exists ? Number(settings.data().backupRetentionDays || 14) : 14;
+  await createPlatformBackup('scheduled');
+  await pruneBackups(retentionDays);
+});
+
+exports.createBackupNow = onCall({ region: 'europe-west1', timeoutSeconds: 540, memory: '512MiB' }, async request => {
+  const staff = await requireStaff(request, ['admin', 'teacher']);
+  const result = await createPlatformBackup('manual', staff);
+  await pruneBackups(14);
+  return result;
+});
+
+exports.listAutomaticBackups = onCall(CALLABLE_OPTIONS, async request => {
+  await requireStaff(request, ['admin', 'teacher']);
+  const [files] = await admin.storage().bucket().getFiles({ prefix: 'automatic-backups/' });
+  const backups = files.map(file => ({ name: file.name, size: Number(file.metadata.size || 0), createdAt: file.metadata.timeCreated || '' }))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 50);
+  return { backups };
+});
+
+exports.getBackupDownloadUrl = onCall(CALLABLE_OPTIONS, async request => {
+  await requireStaff(request, ['admin', 'teacher']);
+  const name = text(request.data && request.data.name, 500);
+  if (!name.startsWith('automatic-backups/')) throw new HttpsError('invalid-argument', 'مسار النسخة غير صالح.');
+  const [url] = await admin.storage().bucket().file(name).getSignedUrl({ action: 'read', expires: Date.now() + 10 * 60 * 1000, version: 'v4' });
+  return { url };
+});
+
+
+async function deleteRootCollection(collectionName) {
+  while (true) {
+    const snap = await db.collection(collectionName).limit(350).get();
+    if (snap.empty) return;
+    const refs = [];
+    for (const doc of snap.docs) {
+      if (collectionName === 'student_attempts') {
+        const attempts = await doc.ref.collection('attempts').get().catch(() => null);
+        if (attempts) refs.push(...attempts.docs.map(item => item.ref));
+      }
+      refs.push(doc.ref);
+    }
+    await commitDeleteRefs(refs);
+    if (snap.size < 350) return;
+  }
+}
+
+async function restoreCollection(collectionName, rows) {
+  await deleteRootCollection(collectionName);
+  const operations = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || !row.id || !row.data) continue;
+    const ref = db.collection(collectionName).doc(cleanDocId(row.id));
+    operations.push(batch => batch.set(ref, decodeBackupValue(row.data)));
+    if (collectionName === 'student_attempts') {
+      for (const attempt of Array.isArray(row.attempts) ? row.attempts : []) {
+        if (!attempt || !attempt.id || !attempt.data) continue;
+        operations.push(batch => batch.set(ref.collection('attempts').doc(cleanDocId(attempt.id)), decodeBackupValue(attempt.data)));
+      }
+    }
+  }
+  const queue = operations.slice();
+  while (queue.length) {
+    const batch = db.batch();
+    queue.splice(0, 350).forEach(operation => operation(batch));
+    await batch.commit();
+  }
+}
+
+exports.restoreAutomaticBackup = onCall({ region: 'europe-west1', timeoutSeconds: 540, memory: '1GiB' }, async request => {
+  const staff = await requireStaff(request, ['admin', 'teacher']);
+  const name = text(request.data && request.data.name, 500);
+  const confirmation = text(request.data && request.data.confirmation, 50);
+  if (!name.startsWith('automatic-backups/') || !name.endsWith('.json.gz')) {
+    throw new HttpsError('invalid-argument', 'مسار النسخة غير صالح.');
+  }
+  if (confirmation !== 'RESTORE-V53') throw new HttpsError('failed-precondition', 'تأكيد الاستعادة غير صحيح.');
+
+  const file = admin.storage().bucket().file(name);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError('not-found', 'النسخة الاحتياطية غير موجودة.');
+  const [compressed] = await file.download();
+  let payload;
+  try { payload = JSON.parse(zlib.gunzipSync(compressed).toString('utf8')); }
+  catch (_) { throw new HttpsError('data-loss', 'تعذر قراءة النسخة الاحتياطية.'); }
+  if (!payload || payload.schemaVersion !== 53 || payload.backupFormatVersion !== 2 || !payload.collections) {
+    throw new HttpsError('failed-precondition', 'هذه النسخة ليست بصيغة الاستعادة الآمنة للإصدار 53.');
+  }
+
+  const safetyBackup = await createPlatformBackup('pre-restore', staff);
+  for (const collectionName of BACKUP_COLLECTIONS) {
+    await restoreCollection(collectionName, payload.collections[collectionName] || []);
+  }
+  await db.collection('activityLog').add({
+    action: 'تمت استعادة نسخة احتياطية سحابية',
+    meta: { restoredFrom: name, safetyBackup: safetyBackup.name },
+    actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp()
+  });
+  return { ok: true, restoredFrom: name, safetyBackup: safetyBackup.name };
+});
+
+async function queryStudentDocuments(collection, studentCode) {
+  const snap = await db.collection(collection).where('studentCode', '==', studentCode).get().catch(() => null);
+  return snap ? snap.docs : [];
+}
+
+async function commitDeleteRefs(refs) {
+  const queue = refs.slice();
+  while (queue.length) {
+    const batch = db.batch();
+    queue.splice(0, 400).forEach(ref => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+exports.deleteStudentSafely = onCall({ region: 'europe-west1', timeoutSeconds: 120, memory: '512MiB' }, async request => {
+  const staff = await requireStaff(request, ['admin', 'teacher']);
+  const studentCode = normalizeCode(request.data && request.data.studentCode);
+  if (!validLegacyOrStrongCode(studentCode)) throw new HttpsError('invalid-argument', 'كود الطالب غير صالح.');
+  const studentRef = db.collection('students').doc(cleanDocId(studentCode));
+  const studentSnap = await studentRef.get();
+  if (!studentSnap.exists) throw new HttpsError('not-found', 'الطالب غير موجود.');
+  const student = studentSnap.data();
+  const relatedCollections = ['attendance','grades','recitations','homework_submissions','exam_attempts'];
+  const relatedEntries = {};
+  const relatedDocs = [];
+  for (const collection of relatedCollections) {
+    const docs = await queryStudentDocuments(collection, studentCode);
+    relatedEntries[collection] = docs.map(doc => ({ id: doc.id, data: doc.data() }));
+    relatedDocs.push(...docs.map(doc => doc.ref));
+  }
+  const attemptsParent = db.collection('student_attempts').doc(cleanDocId(studentCode));
+  const attemptsChildren = await attemptsParent.collection('attempts').get().catch(() => null);
+  const deletionSnapshot = {
+    schemaVersion: 53,
+    deletedAt: new Date().toISOString(),
+    deletedBy: { uid: staff.uid, email: staff.email || '', role: staff.role || '' },
+    student: { id: studentSnap.id, data: student },
+    related: relatedEntries,
+    studentAttempts: attemptsChildren ? attemptsChildren.docs.map(doc => ({ id: doc.id, data: doc.data() })) : []
+  };
+  const archiveName = `deleted-students/${cleanDocId(studentCode)}/${new Date().toISOString().replace(/[:.]/g, '-')}.json.gz`;
+  await admin.storage().bucket().file(archiveName).save(zlib.gzipSync(Buffer.from(JSON.stringify(deletionSnapshot), 'utf8')), { resumable: false, contentType: 'application/gzip' });
+  const refs = [studentRef, db.collection('student_portal').doc(cleanDocId(studentCode)), db.collection('payments').doc(cleanDocId(studentCode)), attemptsParent, ...relatedDocs];
+  if (student.parentCode) refs.push(db.collection('parent_portal').doc(cleanDocId(student.parentCode)));
+  if (attemptsChildren) refs.push(...attemptsChildren.docs.map(doc => doc.ref));
+  await commitDeleteRefs(refs);
+  await db.collection('activityLog').add({ action: 'تم حذف طالب مع نسخة استرجاع', meta: { studentCode, archiveName }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
+  return { ok: true, archiveName };
 });
