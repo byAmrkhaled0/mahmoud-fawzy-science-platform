@@ -1,40 +1,20 @@
-# Dependencies
 node_modules/
 functions/node_modules/
 
-# Build output
 dist/
 
-# Environment variables and secrets
 .env
 .env.*
-!.env.example
 functions/.env
 functions/.env.*
-!functions/.env.example
 
-# Firebase and Vercel local files
 .firebase/
 .vercel/
 
-# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 *.log
 
-# Test coverage
-coverage/
-
-# Operating system files
 .DS_Store
 Thumbs.db
-
-# Editor temporary files
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.example.json
-.idea/
-*.swp
-*.swo
