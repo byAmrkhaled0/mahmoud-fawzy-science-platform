@@ -43,6 +43,48 @@
     };
   }
 
+  function enhanceStudentTools(){
+    const section=document.querySelector('.admin-section');
+    const form=document.getElementById('addStudentForm');
+    const toolbar=document.querySelector('.admin-toolbar');
+    if(!section||!form||!toolbar||section.querySelector('.v56-student-tools'))return;
+    const head=section.querySelector(':scope > .section-head');
+    const addPanel=form.parentElement;
+    const reportPanel=section.querySelector('.monthly-report-help-v38');
+    const importPanel=document.getElementById('studentImportTools');
+    const legacyButton=[...(head?.querySelectorAll('button')||[])].find(button=>button.textContent.includes('ترقية الأكواد'));
+    head?.querySelectorAll('button').forEach(button=>button.hidden=true);
+    [addPanel,reportPanel,importPanel].forEach(panel=>{if(panel){panel.hidden=true;panel.classList.add('v56-tool-panel');}});
+    toolbar.classList.add('v56-student-filterbar');
+    toolbar.insertAdjacentHTML('afterbegin','<div class="v56-filter-title"><span data-icon="search"></span><div><b>ابحث وصفّي الطلاب</b><small>اكتب الكود أو رقم ولي الأمر، ثم حدّد الصف والدفع والعام والترم.</small></div></div>');
+    head?.insertAdjacentHTML('afterend',`<div class="v56-student-tools" aria-label="أدوات إدارة الطلاب">
+      <button type="button" data-student-tool="add"><span class="iconbox" data-icon="user"></span><span><b>إضافة طالب</b><small>تسجيل وإصدار الأكواد</small></span></button>
+      <button type="button" data-student-tool="report"><span class="iconbox" data-icon="send"></span><span><b>تقارير الشهر</b><small>رسالة واتساب جاهزة</small></span></button>
+      <button type="button" data-student-tool="import"><span class="iconbox" data-icon="file-text"></span><span><b>استيراد وتصدير</b><small>CSV وExcel</small></span></button>
+      <button type="button" data-student-tool="upgrade"><span class="iconbox" data-icon="refresh-cw"></span><span><b>ترقية الأكواد</b><small>تحديث الأكواد القديمة</small></span></button>
+    </div>`);
+    const panels={add:addPanel,report:reportPanel,import:importPanel};
+    section.querySelectorAll('[data-student-tool]').forEach(button=>button.addEventListener('click',()=>{
+      const key=button.dataset.studentTool;
+      if(key==='upgrade'){legacyButton?.click();return;}
+      const target=panels[key];if(!target)return;
+      const willOpen=target.hidden;
+      Object.values(panels).forEach(panel=>{if(panel)panel.hidden=true;});
+      section.querySelectorAll('[data-student-tool]').forEach(item=>item.classList.remove('active'));
+      target.hidden=!willOpen;
+      if(willOpen){button.classList.add('active');target.scrollIntoView({behavior:'smooth',block:'nearest'});}
+    }));
+    if(typeof hydrateIcons==='function')hydrateIcons();
+  }
+
+  function installStudentPageEnhancement(){
+    if(typeof renderStudents!=='function'||renderStudents.v56Enhanced)return;
+    const base=renderStudents;
+    renderStudents=function(){base();enhanceStudentTools();};
+    renderStudents.v56Enhanced=true;
+    if(document.getElementById('addStudentForm'))enhanceStudentTools();
+  }
+
   function closeOpenMenus(event){
     if(event.target.closest('.v56-student-actions details'))return;
     document.querySelectorAll('.v56-student-actions details[open]').forEach(item=>item.removeAttribute('open'));
@@ -50,7 +92,7 @@
 
   document.addEventListener('DOMContentLoaded',()=>{
     connectLabels();
-    applyAdminStudentList();
+    setTimeout(()=>{applyAdminStudentList();installStudentPageEnhancement();},30);
     document.addEventListener('click',closeOpenMenus);
   });
 })();
