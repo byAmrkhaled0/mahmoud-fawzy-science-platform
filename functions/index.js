@@ -456,6 +456,7 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   if (studentPhone.length < 10 || parentPhone.length < 10) throw new HttpsError('invalid-argument', 'اكتب أرقام هاتف صحيحة.');
   const requestedGrade = text(body.grade, 80);
   const requestedGroup = text(body.group, 100);
+  const pendingAssignment = requestedGroup === 'تحديد المجموعة مع المدرس' && text(body.scheduleId, 100) === 'pending-assignment';
   let selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
   let scheduleSnap = selectedScheduleId ? await db.collection('groups').doc(selectedScheduleId).get() : null;
 
@@ -472,10 +473,10 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
       selectedScheduleId = matching.id;
     }
   }
-  if (!scheduleSnap || !scheduleSnap.exists || scheduleSnap.data().active === false) {
+  if ((!scheduleSnap || !scheduleSnap.exists || scheduleSnap.data().active === false) && !pendingAssignment) {
     throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
   }
-  const schedule = scheduleSnap.data();
+  const schedule = pendingAssignment ? { name: 'تحديد المجموعة مع المدرس', days: '', startTime: '', endTime: '', grade: requestedGrade, active: true } : scheduleSnap.data();
   if (schedule.grade && schedule.grade !== 'كل الصفوف' && schedule.grade !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
   // All codes shown after booking are digits only and can be typed with Arabic
   // or English numerals. They are issued immediately and never change later.
