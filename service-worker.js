@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v563-production-compact";
+const CACHE_NAME = "mf-science-v567-production-clean-tracker";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",

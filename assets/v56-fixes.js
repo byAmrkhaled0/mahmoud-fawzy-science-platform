@@ -24,6 +24,39 @@
     if(toast){toast.setAttribute('role','status');toast.setAttribute('aria-live','polite');}
   }
 
+  function closePublicMenu(){document.body.classList.remove('v56-public-menu-open');document.querySelector('.v56-site-menu-button')?.setAttribute('aria-expanded','false');}
+  function installPublicMobileMenu(){
+    const navbar=document.querySelector('.site-header .navbar'),nav=document.querySelector('.site-header .navlinks');
+    if(!navbar||!nav||document.querySelector('.v56-site-menu-button'))return;
+    const links=[...nav.querySelectorAll('a')].map(link=>`<a href="${link.getAttribute('href')||'#'}">${link.textContent.trim()}</a>`).join('');
+    navbar.insertAdjacentHTML('beforeend','<button class="v56-site-menu-button" type="button" aria-label="فتح قائمة الموقع" aria-expanded="false"><span></span><span></span><span></span></button>');
+    document.body.insertAdjacentHTML('beforeend',`<div class="v56-public-menu-backdrop" aria-hidden="true"></div><aside class="v56-public-menu" aria-label="قائمة الموقع"><div class="v56-public-menu-head"><div><small>منصة العلوم</small><b>مستر محمود إبراهيم فوزي</b></div><button type="button" aria-label="إغلاق القائمة">×</button></div><nav>${links}</nav><a class="btn primary" href="index.html#booking">احجز مكانك الآن</a></aside>`);
+    const button=document.querySelector('.v56-site-menu-button'),backdrop=document.querySelector('.v56-public-menu-backdrop'),drawer=document.querySelector('.v56-public-menu');
+    button.addEventListener('click',()=>{const open=!document.body.classList.contains('v56-public-menu-open');document.body.classList.toggle('v56-public-menu-open',open);button.setAttribute('aria-expanded',String(open));});
+    backdrop.addEventListener('click',closePublicMenu);drawer.querySelector('.v56-public-menu-head button').addEventListener('click',closePublicMenu);drawer.querySelectorAll('a').forEach(link=>link.addEventListener('click',closePublicMenu));
+  }
+
+  function removeLegacyMobileBars(){
+    document.querySelectorAll('.mobile-bottom,.admin-mobile-bottom,.floating-top-tools,.pro-scroll-top').forEach(bar=>bar.remove());
+    document.body.classList.remove('mobile-nav-active');
+  }
+
+  function installCleanScrollTop(){
+    if(document.getElementById('v56ScrollTop'))return;
+    document.body.insertAdjacentHTML('beforeend','<button id="v56ScrollTop" class="v56-scroll-top" type="button" aria-label="الرجوع لأول الصفحة"><span aria-hidden="true">↑</span></button>');
+    const button=document.getElementById('v56ScrollTop');
+    const update=()=>button.classList.toggle('show',window.scrollY>320);
+    button.addEventListener('click',()=>window.scrollTo({top:0,behavior:'smooth'}));
+    window.addEventListener('scroll',update,{passive:true});update();
+  }
+
+  function installAdminDrawerActions(){
+    const sidebar=document.getElementById('adminSidebar'),footer=sidebar?.querySelector('.admin-sidebar-footer');
+    if(!sidebar||!footer||footer.querySelector('.v56-admin-drawer-actions'))return;
+    footer.insertAdjacentHTML('afterbegin','<div class="v56-admin-drawer-actions"><button type="button" onclick="enableBookingNotifications()"><span data-icon="calendar"></span> تنبيهات الحجز</button><button type="button" onclick="forceFirestoreSync()"><span data-icon="refresh-cw"></span> حفظ التغييرات</button><button type="button" class="danger" onclick="adminLogout()"><span data-icon="external-link"></span> تسجيل الخروج</button></div>');
+    if(typeof hydrateIcons==='function')hydrateIcons();
+  }
+
   function applyAdminStudentList(){
     if(typeof studentsTable!=='function'||typeof normalizeStudent!=='function')return;
     studentsTable=function(rows){
@@ -117,7 +150,12 @@
 
   document.addEventListener('DOMContentLoaded',()=>{
     connectLabels();
-    setTimeout(()=>{applyAdminStudentList();installStudentPageEnhancement();},30);
+    removeLegacyMobileBars();
+    installCleanScrollTop();
+    installPublicMobileMenu();
+    setTimeout(()=>{applyAdminStudentList();installStudentPageEnhancement();installAdminDrawerActions();},30);
+    const adminMenuObserver=new MutationObserver(()=>{removeLegacyMobileBars();installAdminDrawerActions();if(document.querySelector('.v56-admin-drawer-actions'))adminMenuObserver.disconnect();});
+    adminMenuObserver.observe(document.body,{childList:true,subtree:true});
     document.addEventListener('click',closeOpenMenus);
   });
 })();
