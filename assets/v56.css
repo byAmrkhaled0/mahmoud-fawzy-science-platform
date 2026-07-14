@@ -1,0 +1,53 @@
+/* V56: final usability and admin-density refinements. */
+.booking-issued-codes{grid-template-columns:repeat(3,minmax(0,1fr))}
+.booking-code-spotlight code{direction:ltr;font-variant-numeric:tabular-nums;letter-spacing:.08em}
+.field-hint a{color:var(--brand);text-decoration:underline;text-underline-offset:3px}
+.leaderboard-five .empty-state{min-height:140px!important;padding:22px!important}
+.star-input button[aria-pressed="true"]{color:#f5b301;transform:translateY(-1px)}
+
+.v56-student-summary{display:grid;grid-template-columns:repeat(3,minmax(0,150px));gap:8px;margin:0 0 10px}
+.v56-student-summary span{display:grid;padding:10px 12px;border:1px solid var(--border);border-radius:13px;background:var(--card);box-shadow:0 4px 14px rgba(15,72,82,.04)}
+.v56-student-summary b{font-size:1.22rem;color:var(--primary)}
+.v56-student-summary small{color:var(--muted);font-weight:850}
+.v56-student-list{border:1px solid var(--border);border-radius:17px;background:var(--card);overflow:visible}
+.v56-student-row{position:relative;display:grid;grid-template-columns:minmax(270px,1fr) auto auto;align-items:center;gap:14px;padding:10px 12px;border-bottom:1px solid var(--border)}
+.v56-student-row:last-child{border-bottom:0}
+.v56-student-row:hover{background:color-mix(in srgb,var(--primary) 4%,var(--card))}
+.v56-student-identity{display:flex;align-items:center;gap:10px;min-width:0}
+.v56-student-identity .student-avatar{width:38px;height:38px;border-radius:11px}
+.v56-student-identity>div{display:grid;min-width:0}
+.v56-student-identity b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v56-student-identity small{color:var(--muted);font-size:.68rem;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v56-student-kpis{display:flex;align-items:center;gap:7px}
+.v56-student-kpis>span:not(.badge){display:grid;min-width:58px;padding:5px 7px;border-radius:9px;background:var(--bg);text-align:center}
+.v56-student-kpis small{font-size:.6rem;color:var(--muted)}
+.v56-student-kpis b{font-size:.78rem}
+.v56-student-actions{display:flex;align-items:center;gap:5px}
+.v56-student-actions details{position:relative}
+.v56-student-actions summary{list-style:none;cursor:pointer}
+.v56-student-actions summary::-webkit-details-marker{display:none}
+.v56-action-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:60;width:180px;display:grid;gap:3px;padding:7px;border:1px solid var(--border);border-radius:12px;background:var(--card);box-shadow:0 18px 45px rgba(15,35,48,.18)}
+.v56-action-menu button{border:0;border-radius:8px;background:transparent;color:var(--text);padding:8px 9px;text-align:right;font:inherit;font-size:.72rem;font-weight:850;cursor:pointer}
+.v56-action-menu button:hover{background:var(--bg)}
+.v56-action-menu button.danger{color:var(--red)}
+
+@media(max-width:900px){
+  .booking-issued-codes{grid-template-columns:1fr}
+  .v56-student-row{grid-template-columns:1fr auto;gap:8px}
+  .v56-student-kpis{grid-column:1/-1;justify-content:flex-start}
+  .v56-student-actions{grid-column:1/-1;justify-content:flex-end}
+}
+@media(max-width:620px){
+  body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
+  .v56-student-summary{grid-template-columns:repeat(3,1fr)}
+  .v56-student-summary span{padding:8px;text-align:center}
+  .v56-student-summary b{font-size:1rem}
+  .v56-student-summary small{font-size:.62rem}
+  .v56-student-list{display:grid;gap:7px;border:0;background:transparent}
+  .v56-student-row{display:grid;grid-template-columns:1fr;padding:10px;border:1px solid var(--border);border-radius:14px;background:var(--card)}
+  .v56-student-kpis,.v56-student-actions{grid-column:1}
+  .v56-student-actions{justify-content:stretch}
+  .v56-student-actions>.small-btn{flex:1}
+  .v56-student-actions details{margin-inline-start:auto}
+  .v56-action-menu{left:0;right:auto;width:min(210px,calc(100vw - 44px))}
+}

@@ -7,7 +7,7 @@ const { spawnSync } = require('child_process');
 const root = path.resolve(__dirname, '..');
 const requiredFiles = [
   'index.html', 'student.html', 'parent.html', 'exams.html', 'teacher-login.html',
-  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v55.css', 'assets/teacher.webp',
+  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v55.css', 'assets/v56-fixes.js', 'assets/v56.css', 'assets/teacher.webp',
   'assets/firebase-sync.js', 'assets/firebase-config.js', 'assets/icon-maskable-512.png',
   'firestore.rules', 'storage.rules', 'firestore.indexes.json', 'firebase.json',
   'functions/index.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html'
@@ -24,7 +24,7 @@ for (const relative of requiredFiles) {
 if (!failures.length) ok('Required files exist');
 
 const jsFiles = [
-  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js',
+  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v56-fixes.js',
   'assets/firebase-sync.js', 'assets/firebase-config.js',
   'functions/index.js', 'local-server.js', 'scripts/build.js'
 ];

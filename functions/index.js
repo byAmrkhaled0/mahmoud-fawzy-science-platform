@@ -68,6 +68,13 @@ function randomNumericCode(length = 8) {
   return first + rest;
 }
 
+function publicStudentName(value) {
+  const parts = text(value, 80).split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[1].charAt(0)}.`;
+}
+
 async function uniqueNumericCode(collection, length = 8) {
   for (let i = 0; i < 12; i += 1) {
     const code = randomNumericCode(length);
@@ -323,7 +330,7 @@ async function attemptSummaries(studentCode) {
 async function studentRecords(studentCode) {
   const normalized = normalizeCode(studentCode);
   const load = async collection => {
-    const snap = await db.collection(collection).where('studentCode', '==', normalized).get().catch(() => null);
+    const snap = await db.collection(collection).where('studentCode', '==', normalized).limit(250).get().catch(() => null);
     return snap ? snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
   };
   const [attendance, grades, homeworks, recitations] = await Promise.all([
@@ -359,7 +366,7 @@ exports.getPublicLeaderboard = onCall(CALLABLE_OPTIONS, async request => {
     const gradeRows=(grades.get(code)||st.grades||[]).filter(x=>Number.isFinite(Number(x.score))),gradePct=gradeRows.length?Math.round(gradeRows.reduce((sum,x)=>sum+Number(x.score),0)/gradeRows.length):0;
     const hw=homeworks.get(code)||st.homeworks||[],homeworkPct=hw.length?Math.round(hw.filter(x=>String(x.status||'').includes('تم')||x.approved===true).length/hw.length*100):0;
     const score=Math.round(attendancePct*.45+gradePct*.45+homeworkPct*.10);
-    return {name:text(st.studentName||st.name,60),grade:text(st.grade,50),score,attendancePct,gradePct,homeworkPct,activity:att.length+gradeRows.length+hw.length};
+    return {name:publicStudentName(st.studentName||st.name),grade:text(st.grade,50),score,attendancePct,gradePct,homeworkPct,activity:att.length+gradeRows.length+hw.length};
   }).filter(x=>x.name&&x.activity>0).sort((a,b)=>b.score-a.score||b.attendancePct-a.attendancePct||b.gradePct-a.gradePct).slice(0,5);
   return rows;
 });
@@ -373,8 +380,9 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
   if (digits(parentPhone).length < 10) throw new HttpsError('invalid-argument', 'اكتب رقم ولي أمر صحيحًا.');
 
   for (let attemptNo = 0; attemptNo < 8; attemptNo += 1) {
-    const studentCode = randomCode('ST', 8);
-    const parentCode = randomCode('PR', 8);
+    const studentCode = await uniqueNumericCode('student_portal', 8);
+    let parentCode = await uniqueNumericCode('parent_portal', 8);
+    while (parentCode === studentCode) parentCode = await uniqueNumericCode('parent_portal', 8);
     const studentRef = db.collection('students').doc(cleanDocId(studentCode));
     const studentPortalRef = db.collection('student_portal').doc(cleanDocId(studentCode));
     const parentPortalRef = db.collection('parent_portal').doc(cleanDocId(parentCode));
@@ -944,7 +952,7 @@ exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
   if (!fileName || !fileUrl || !Number.isFinite(size) || size <= 0 || size > 10 * 1024 * 1024) {
     throw new HttpsError('invalid-argument', 'بيانات ملف الواجب غير صالحة.');
   }
-  if (!(contentType.startsWith('image/') || contentType === 'application/pdf')) {
+  if (!(['image/jpeg','image/png','image/webp','application/pdf'].includes(contentType))) {
     throw new HttpsError('invalid-argument', 'مسموح بالصور وملفات PDF فقط.');
   }
   const ref = db.collection('homework_submissions').doc();

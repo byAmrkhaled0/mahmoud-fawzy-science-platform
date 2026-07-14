@@ -197,7 +197,7 @@
       renderAdminV52();
       applyAdminRoleGuards();
       const syncButton=[...document.querySelectorAll('.admin-top button')].find(btn=>/حفظ ومزامنة|مزامنة Firebase/.test(btn.textContent));
-      if(syncButton)syncButton.innerHTML='<span data-icon="database"></span><span>مزامنة البيانات</span>';
+      if(syncButton)syncButton.innerHTML='<span data-icon="database"></span><span>حفظ التغييرات</span>';
       if(typeof hydrateIcons==='function')hydrateIcons();
     };
 
@@ -399,7 +399,7 @@
       try{const rows=await window.MFCloud?.getActivityLog?.(50)||[];const box=document.getElementById('activityLogBox');if(box)box.innerHTML=rows.length?rows.map(row=>`<div class="mobile-row"><b>${safe(row.action||'عملية')}</b><small>${safe(row.actorEmail||row.actorRole||'')} · ${safe(row.createdAt?.toDate?row.createdAt.toDate().toLocaleString('ar-EG'):'')}</small></div>`).join(''):'<p class="section-desc">لا توجد عمليات.</p>';}catch(e){document.getElementById('activityLogBox').innerHTML='<p class="section-desc">تعذر تحميل السجل.</p>';}
       if(!loading)loadAutomaticBackups();applyAdminRoleGuards();
     };
-    window.createAutomaticBackupNow=async function(){if(!isTeacherManager())return aToast('النسخ السحابي متاح للمدرس أو المدير');try{aToast('جاري إنشاء النسخة السحابية');await window.MFCloud?.createBackupNow?.();aToast('تم إنشاء النسخة السحابية');loadAutomaticBackups();}catch(error){aToast('تعذر إنشاء النسخة. تأكد من نشر Functions وإعداد Storage.');}};
+    window.createAutomaticBackupNow=async function(){if(!isTeacherManager())return aToast('النسخ السحابي متاح للمدرس أو المدير');try{aToast('جاري إنشاء النسخة السحابية');await window.MFCloud?.createBackupNow?.();aToast('تم إنشاء النسخة السحابية');loadAutomaticBackups();}catch(error){aToast('تعذر إنشاء النسخة الآن. تحقق من الإنترنت وحاول مرة أخرى.');}};
     window.loadAutomaticBackups=async function(){const box=document.getElementById('automaticBackupsBox');if(!box)return;box.innerHTML='<div class="skeleton" style="height:100px"></div>';try{const result=await window.MFCloud?.listAutomaticBackups?.();const rows=result?.backups||[];box.innerHTML=rows.length?rows.map(item=>`<div class="mobile-row"><div><b>${safe(item.name?.split('/').pop()||'نسخة')}</b><small>${safe(item.createdAt||'')} · ${Math.max(1,Math.round(Number(item.size||0)/1024))} KB</small></div><div class="mobile-actions"><button class="small-btn" onclick="downloadAutomaticBackup('${safe(item.name)}')">تنزيل</button><button class="small-btn danger" onclick="restoreAutomaticBackup('${safe(item.name)}')">استعادة</button></div></div>`).join(''):'<p class="section-desc">لا توجد نسخ سحابية بعد.</p>';}catch(error){box.innerHTML='<p class="section-desc">تعذر تحميل النسخ. انشر Cloud Functions الجديدة أولًا.</p>';}};
     window.downloadAutomaticBackup=async function(name){try{const result=await window.MFCloud?.getBackupDownloadUrl?.(name);if(result?.url)window.open(result.url,'_blank','noopener');else throw new Error('url');}catch(error){aToast('تعذر إنشاء رابط تنزيل النسخة');}};
     window.restoreAutomaticBackup=async function(name){if(!isTeacherManager())return aToast('الاستعادة متاحة للمدرس أو المدير فقط');const typed=prompt('الاستعادة ستستبدل بيانات المنصة، وسيتم إنشاء نسخة أمان قبلها. اكتب: استعادة');if(typed!=='استعادة')return aToast('تم إلغاء الاستعادة');try{aToast('جاري إنشاء نسخة أمان ثم الاستعادة');await window.MFCloud?.restoreAutomaticBackup?.(name);await reloadFromCloud();aToast('تمت الاستعادة بنجاح');renderBackup();}catch(error){aToast(error?.message?.split(':').pop()?.trim()||'تعذرت الاستعادة');}};

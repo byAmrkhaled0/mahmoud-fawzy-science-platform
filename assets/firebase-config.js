@@ -13,6 +13,6 @@ window.MF_FIREBASE_CONFIG = {
   functionsRegion: "europe-west1",
   // Paste the Firebase Console > Cloud Messaging > Web Push public VAPID key
   // here to receive booking notifications while the teacher app is closed.
-  messagingVapidKey: "BOhmOucpARhO_glCDPRQiF5CyAZHQIqeOSEF9XOiAKzWD3HYw2E5Hqq0DHaUbF3-6T7hoD0ENDNEuN4L5vdgQAo",
+  messagingVapidKey: "",
   useSecureFunctions: true
 };

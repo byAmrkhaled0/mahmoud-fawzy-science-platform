@@ -1,9 +1,9 @@
-const CACHE_NAME = "mf-science-v55-production-compact";
+const CACHE_NAME = "mf-science-v56-production-compact";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
-  "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/v55.css", "/assets/app.js", "/assets/admin.js",
-  "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/v55-admin.js", "/assets/logo-icon.svg",
+  "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/v55.css", "/assets/v56.css", "/assets/app.js", "/assets/admin.js",
+  "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/v55-admin.js", "/assets/v56-fixes.js", "/assets/logo-icon.svg",
   "/assets/icon-192.png", "/assets/icon-512.png", "/assets/icon-maskable-512.png", "/assets/teacher.webp", "/site.webmanifest", "/teacher.webmanifest"
 ];
 

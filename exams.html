@@ -15,6 +15,7 @@
 <link href="site.webmanifest" rel="manifest"/>
 <link href="assets/site.css" rel="stylesheet"/>
 <link href="assets/v55.css" rel="stylesheet"/>
+<link href="assets/v56.css" rel="stylesheet"/>
 <title>الامتحانات الشهرية | مستر محمود إبراهيم فوزي</title>
 <meta content="امتحانات شهرية بوقت وعدّاد ودرجات تظهر للطالب بالكود." name="description"/>
 </head>
@@ -45,7 +46,7 @@
 <section class="section tight">
 <div class="container portal-shell">
 <form class="card" id="examCodeForm">
-<div class="field portal-code-field"><label>كود الطالب</label><div class="code-input-wrap"><span data-icon="user"></span><input name="query" placeholder="مثال: ST-7K2P-9Q4X" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" required=""/></div><small>اكتب كود الطالب لعرض امتحانات الصف فقط.</small></div><label class="remember-code"><input type="checkbox" name="rememberCode"/> <span>حفظ الكود على هذا الجهاز</span></label>
+<div class="field portal-code-field"><label for="examStudentCode">كود الطالب</label><div class="code-input-wrap"><span data-icon="user"></span><input id="examStudentCode" name="query" placeholder="اكتب كود الطالب المكوّن من 8 أرقام" inputmode="numeric" pattern="[0-9٠-٩۰-۹]{8}" maxlength="8" autocomplete="off" spellcheck="false" enterkeyhint="go" required=""/></div><small>اكتب كود الطالب لعرض امتحانات الصف فقط.</small></div><label class="remember-code"><input type="checkbox" name="rememberCode"/> <span>حفظ الكود على هذا الجهاز</span></label>
 <button class="btn primary portal-submit-btn" style="margin-top:14px"><span data-icon="search"></span> عرض امتحاناتي</button>
 </form>
 <div class="card result-box" id="examStudentResult" aria-live="polite"><div class="portal-empty"><span class="iconbox" data-icon="clipboard"></span><h3>امتحاناتك في انتظارك</h3><p>اكتب كود الطالب بالأعلى لعرض الامتحانات المتاحة والنتائج.</p></div></div>
@@ -81,5 +82,6 @@
 <script src="assets/firebase-sync.js"></script>
 <script src="assets/app.js"></script>
 <script src="assets/v53-upgrades.js"></script>
+<script src="assets/v56-fixes.js"></script>
 </body>
 </html>

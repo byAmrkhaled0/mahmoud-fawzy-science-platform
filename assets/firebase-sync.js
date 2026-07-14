@@ -63,6 +63,13 @@
       return `${prefix}-${body.slice(0,4)}-${body.slice(4,8)}`;
     }
 
+    function randomNumericAccessCode(){
+      const bytes=new Uint32Array(8);
+      if(self.crypto?.getRandomValues)self.crypto.getRandomValues(bytes);
+      else for(let i=0;i<bytes.length;i+=1)bytes[i]=Math.floor(Math.random()*0xffffffff);
+      return String((bytes[0]%9)+1)+[...bytes.slice(1)].map(byte=>String(byte%10)).join('');
+    }
+
     function normalizedStudent(raw){
       const s=raw||{};
       const code=normalizeCode(s.studentCode||s.code||s.id||'');
@@ -237,7 +244,10 @@
 
     async function createStudentAccessDirect(student){
       const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');
-      const studentCode=randomCode('ST'),parentCode=randomCode('PR');
+      let studentCode='',parentCode='';
+      for(let i=0;i<12&&!studentCode;i+=1){const code=randomNumericAccessCode();if(!(await db.collection('student_portal').doc(code).get()).exists)studentCode=code;}
+      for(let i=0;i<12&&!parentCode;i+=1){const code=randomNumericAccessCode();if(code!==studentCode&&!(await db.collection('parent_portal').doc(code).get()).exists)parentCode=code;}
+      if(!studentCode||!parentCode)throw new Error('تعذر إنشاء أكواد جديدة');
       const source=normalizedStudent({...student,studentCode,code:studentCode,parentCode,active:student?.active!==false});
       const ops=[];pushStudentOps(ops,source);await commitOperations(ops);return {...studentProfile(source),studentCode,code:studentCode,parentCode};
     }
