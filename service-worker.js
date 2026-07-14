@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v567-production-clean-tracker";
+const CACHE_NAME = "mf-science-v568-production-booking-refresh";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
@@ -57,6 +57,7 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("message", event => {
   if(event.data && event.data.type==="SKIP_WAITING") self.skipWaiting();
+  if(event.data && event.data.type==="CLEAR_OLD_CACHES") event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE_NAME).map(key=>caches.delete(key)))));
 });
 
 self.addEventListener("fetch", event => {

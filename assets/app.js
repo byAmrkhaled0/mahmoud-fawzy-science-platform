@@ -718,7 +718,7 @@ function registerServiceWorker(){
       registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)worker.postMessage({type:'SKIP_WAITING'});});});
     }catch(_){ }
   });
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{if(sessionStorage.getItem('mf_sw_reloaded_v54'))return;sessionStorage.setItem('mf_sw_reloaded_v54','1');location.reload();}catch(_){ }});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{if(sessionStorage.getItem('mf_sw_reloaded_v568'))return;sessionStorage.setItem('mf_sw_reloaded_v568','1');location.reload();}catch(_){ }});
 }
 function setupPWAInstall(){
   const button=document.getElementById('installAppButton');if(!button)return;let installPrompt=null;
