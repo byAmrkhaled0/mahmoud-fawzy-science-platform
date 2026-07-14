@@ -34,8 +34,11 @@
 
     const calls={
       getPortalStudent:callable('getPortalStudent'),
+      getPublicLeaderboard:callable('getPublicLeaderboard'),
       createBooking:callable('createBooking'),
       approveBooking:callable('approveBooking'),
+      rejectBooking:callable('rejectBooking'),
+      registerTeacherPushToken:callable('registerTeacherPushToken'),
       getBookingStatus:callable('getBookingStatus'),
       createReview:callable('createReview'),
       getExamDashboard:callable('getExamDashboard'),
@@ -296,6 +299,9 @@
         if(!calls.approveBooking)throw new Error('Secure booking approval function is unavailable');
         return calls.approveBooking({code:normalizeCode(code)});
       },
+      rejectBooking:async code=>{if(!calls.rejectBooking)throw new Error('Secure booking rejection function is unavailable');return calls.rejectBooking({code:normalizeCode(code)});},
+      subscribeToBookings:handler=>db.collection('bookings').orderBy('createdAt','desc').limit(100).onSnapshot(snap=>handler(snap.docs.map(doc=>({id:doc.id,...doc.data()})),snap.docChanges()),error=>console.warn('booking-listener',error)),
+      registerTeacherPushToken:async()=>{if(!cfg.messagingVapidKey||!firebase.messaging||!calls.registerTeacherPushToken)throw new Error('VAPID_KEY_REQUIRED');const registration=await navigator.serviceWorker.ready;const token=await firebase.messaging().getToken({vapidKey:cfg.messagingVapidKey,serviceWorkerRegistration:registration});if(!token)throw new Error('TOKEN_UNAVAILABLE');return calls.registerTeacherPushToken({token,userAgent:navigator.userAgent});},
       getBookingStatus:async code=>{
         const normalized=normalizeCode(code);
         if(calls.getBookingStatus){try{return await calls.getBookingStatus({code:normalized});}catch(error){
@@ -316,6 +322,7 @@
       },
       upsertAttendance,getAttendanceForDate,
       getStudentByCode:code=>{if(!calls.getPortalStudent)throw new Error('Secure student portal function is unavailable');return calls.getPortalStudent({code:normalizeCode(code),mode:'student'});},
+      getPublicLeaderboard:()=>calls.getPublicLeaderboard?calls.getPublicLeaderboard({}):Promise.resolve([]),
       getParentStudent:code=>{if(!calls.getPortalStudent)throw new Error('Secure parent portal function is unavailable');return calls.getPortalStudent({code:normalizeCode(code),mode:'parent'});},
       uploadHomework:async(file,studentCode)=>{const normalized=normalizeCode(studentCode);if(!calls.registerHomeworkSubmission)throw new Error('Secure homework function is unavailable');const uploaded=await upload(file,`homework/${cleanDocId(normalized)}`);await calls.registerHomeworkSubmission({studentCode:normalized,...uploaded});return uploaded;},
       uploadAttachment:(file,folder)=>upload(file,folder||'teacher-uploads'),logActivity,

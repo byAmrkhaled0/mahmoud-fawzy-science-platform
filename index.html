@@ -16,6 +16,7 @@
 <link href="assets/icon-192.png" rel="apple-touch-icon"/>
 <link href="site.webmanifest" rel="manifest"/>
 <link href="assets/site.css" rel="stylesheet"/>
+<link href="assets/v55.css" rel="stylesheet"/>
 </head>
 <body id="top">
 <header class="site-header">
@@ -93,28 +94,37 @@
 </div>
 <div class="booking-clean-layout">
 <form class="card grid grid-2 booking-form-compact" id="bookingForm">
+<div class="booking-steps" aria-label="خطوات الحجز"><span class="active" data-booking-indicator="1"><b>1</b><small>بيانات الطالب</small></span><i></i><span data-booking-indicator="2"><b>2</b><small>المجموعة والموعد</small></span><i></i><span data-booking-indicator="3"><b>3</b><small>استلام الكود</small></span></div>
+<div class="booking-step active" data-booking-step="1">
 <div class="field"><label>اسم الطالب</label><input name="name" placeholder="اكتب اسم الطالب" required=""/></div>
 <div class="field"><label>رقم الطالب</label><input name="studentPhone" placeholder="مثال: 010xxxxxxxx" inputmode="tel" required=""/></div>
 <div class="field"><label>رقم ولي الأمر</label><input name="parentPhone" placeholder="اكتب الرقم بالعربي أو الإنجليزي" inputmode="tel" required=""/><small class="field-hint">ينفع نفس رقم الطالب، وينفع تكرار نفس رقم ولي الأمر لأكثر من ابن.</small></div>
+<button class="btn primary booking-next" type="button" data-booking-next><span data-icon="external-link"></span> التالي: اختار الموعد</button>
+</div>
+<div class="booking-step" data-booking-step="2">
 <div class="field"><label>الصف الدراسي</label><select id="bookingGrade" name="grade" required=""></select></div>
 <div class="field"><label>شهر الاشتراك</label><select id="bookingMonth" name="month" required=""></select></div>
 <div class="field"><label>الترم</label><select id="bookingTerm" name="term" required=""></select></div>
 <div class="field booking-group-picker"><label>ابحث عن مجموعتك واختار الموعد</label><div class="group-search-wrap"><span data-icon="search"></span><input id="bookingGroupSearch" type="search" placeholder="اكتب اسم المجموعة أو اليوم" autocomplete="off"/></div><select id="bookingGroup" name="group" required=""><option value="">جاري تحميل المواعيد...</option></select><input id="bookingScheduleId" name="scheduleId" type="hidden"/><small class="field-hint" id="bookingGroupHint">اختار الصف أولًا، ثم ابحث باسم مجموعتك أو يوم الحصة.</small></div>
 <div class="field" style="grid-column:1/-1"><label>ملاحظات</label><textarea name="notes" placeholder="أي تفاصيل مهمة عن الطالب أو المستوى"></textarea></div>
-<button class="btn primary" style="grid-column:1/-1" type="submit"><span data-icon="send"></span> تسجيل الحجز وإظهار الكود</button>
-</form>
-<aside class="card booking-side-card booking-private-card">
-<span class="kicker"><span data-icon="search"></span> متابعة حالة الحجز</span>
-<h3>بياناتك أنت فقط</h3>
-<p>بعد التسجيل هيظهر لك كود خاص. اكتب الكود هنا لمعرفة حالة حجزك فقط.</p>
+<div class="booking-step-actions"><button class="btn ghost" type="button" data-booking-back>رجوع</button><button class="btn primary" type="submit"><span data-icon="send"></span> تأكيد الحجز وإظهار الأكواد</button></div>
+</div>
+<div class="booking-step booking-result-step" data-booking-step="3">
 <div id="bookingSuccess" class="booking-success-box" hidden></div>
+</div>
+</form>
+<details class="card booking-side-card booking-private-card booking-tracking-card">
+<summary class="booking-tracking-toggle" aria-label="متابعة حالة حجز سابق" title="متابعة حالة الحجز"><span data-icon="search"></span></summary>
+<div class="booking-tracking-content"><span class="kicker"><span data-icon="search"></span> متابعة حالة الحجز</span>
+<h3>عندك حجز سابق؟</h3>
+<p>اكتب كود المتابعة الرقمي لمعرفة هل تم اعتماد التسجيل.</p>
 <form id="bookingStatusForm" class="booking-status-form">
-<div class="field"><label>كود الحجز</label><input name="code" placeholder="مثال: BK-7H2M-9Q4X" autocomplete="off"/></div>
+<div class="field"><label>كود متابعة الحجز</label><input name="code" inputmode="numeric" placeholder="اكتب الأرقام فقط" autocomplete="off"/></div>
 <button class="btn ghost" type="submit"><span data-icon="search"></span> متابعة الحالة</button>
 </form>
 <div id="bookingStatusResult" class="booking-status-result"></div>
 <div id="bookingPreview" class="booking-privacy-note"></div>
-</aside>
+</div></details>
 </div>
 </div>
 </section>

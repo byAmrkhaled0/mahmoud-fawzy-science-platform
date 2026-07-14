@@ -62,8 +62,8 @@ service cloud.firestore {
       allow delete: if isTeacher();
     }
     match /booking_status/{bookingCode} {
-      allow get: if validCode(bookingCode);
-      allow list, create: if false;
+      // Status lookup is server-only through a rate-limited callable function.
+      allow read, create: if false;
       allow update: if isStaff();
       allow delete: if isTeacher();
     }
@@ -107,6 +107,7 @@ service cloud.firestore {
     match /_rate_limits/{id} { allow read, write: if false; }
     match /deleted_students/{id} { allow read, write: if false; }
     match /backup_runs/{id} { allow read, write: if false; }
+    match /staff_push_tokens/{id} { allow read, write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }

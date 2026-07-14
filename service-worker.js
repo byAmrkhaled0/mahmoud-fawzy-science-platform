@@ -1,11 +1,43 @@
-const CACHE_NAME = "mf-science-v54-production";
+const CACHE_NAME = "mf-science-v55-production-compact";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
-  "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/app.js", "/assets/admin.js",
-  "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/logo-icon.svg",
+  "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/v55.css", "/assets/app.js", "/assets/admin.js",
+  "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/v55-admin.js", "/assets/logo-icon.svg",
   "/assets/icon-192.png", "/assets/icon-512.png", "/assets/icon-maskable-512.png", "/assets/teacher.webp", "/site.webmanifest", "/teacher.webmanifest"
 ];
+
+// Firebase Messaging shares the same service worker as the PWA, avoiding a
+// second worker with a conflicting root scope.
+try {
+  importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js');
+  firebase.initializeApp({
+    apiKey:'AIzaSyANU2fln6kuYCtdm1WRMtG-AD5pUwV9a4g',
+    authDomain:'mahmoud-fawzy-science-platform.firebaseapp.com',
+    projectId:'mahmoud-fawzy-science-platform',
+    storageBucket:'mahmoud-fawzy-science-platform.firebasestorage.app',
+    messagingSenderId:'805108517684',
+    appId:'1:805108517684:web:68c0cb7e506a583e3a7361'
+  });
+  firebase.messaging().onBackgroundMessage(payload => {
+    const notification = payload.notification || payload.data || {};
+    self.registration.showNotification(notification.title || 'حجز جديد', {
+      body: notification.body || 'تم تسجيل حجز طالب جديد',
+      icon: '/assets/icon-192.png',
+      badge: '/assets/icon-192.png',
+      data: { url: '/teacher-login.html?section=bookings' },
+      tag: `booking-${payload.data?.bookingCode || Date.now()}`
+    });
+  });
+} catch (error) {
+  console.warn('Firebase Messaging is unavailable', error);
+}
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow(event.notification.data?.url || '/teacher-login.html?section=bookings'));
+});
 
 self.addEventListener("install", event => {
   event.waitUntil((async()=>{

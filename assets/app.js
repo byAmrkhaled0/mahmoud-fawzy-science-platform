@@ -90,7 +90,7 @@ function saveData(data){
 var appData = loadData();
 function queueCloudSave(){ if(!window.MFCloud?.ready || !window.MFCloud.saveSiteData) return; clearTimeout(cloudSaveTimer); cloudSaveTimer=setTimeout(()=>window.MFCloud.saveSiteData(appData).catch(()=>{}),500); }
 function persist(msg){saveData(appData); queueCloudSave(); if(msg) toast(msg); refreshActiveViews();}
-function dataErrorHTML(){return `<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="database"></span><h3>تعذر تحميل البيانات، حاول لاحقًا.</h3><p>لم يتم عرض أي بيانات وهمية في نسخة الإنتاج.</p></div>`;}
+function dataErrorHTML(message='تعذر تحميل بيانات الطالب'){return `<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="database"></span><h3>${esc(message)}</h3><p>تأكد من نشر Functions الجديدة، ثم راجع الكود واتصال الإنترنت وحاول مرة أخرى.</p></div>`;}
 async function initFirebaseData(){
   if(!window.MFCloud?.ready || !window.MFCloud.loadSiteData) return;
   try{
@@ -223,6 +223,7 @@ function makeQR(value){
 }
 function studentProfileHTML(raw, isParent=false){
   const st=normalizedStudent(raw); const c=calcStudent(st);
+  const pending=/انتظار|قيد التسجيل/.test(String(st.approvalStatus||''));
   const attempts=[...(st.examAttempts||[]),...(appData.examAttempts||[]).filter(a=>normalizeText(a.studentCode)===normalizeText(st.studentCode))];
   const grades=[...(st.grades||[]),...attempts].slice().reverse();
   const attendance=getAttendanceRows(st);
@@ -235,6 +236,7 @@ function studentProfileHTML(raw, isParent=false){
   const attendanceCards=attendance.length?attendance.slice(0,14).map(r=>`<article class="student-record-card"><div><span class="record-eyebrow">${esc(r.time||'موعد الحصة')}</span><h4>${esc(r.date||'-')}</h4><small>${esc(r.group||st.group||'-')}</small></div><span class="badge ${statusClass(r.status)}">${arStatus(r.status)}</span></article>`).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="calendar"></span><h3>لا توجد سجلات حضور</h3><p>يضيف المدرس سجل الحضور، وسيظهر هنا تلقائيًا.</p></div>';
   const homeworkCards=homeworks.length?homeworks.slice(0,12).map(h=>`<article class="student-record-card"><div><span class="record-eyebrow">واجب دراسي</span><h4>${esc(h.title||'واجب')}</h4><small>${esc(h.notes||h.date||'')}</small></div><span class="badge ${String(h.status||'').includes('تم')?'good':'warn'}">${esc(h.status||'قيد المتابعة')}</span></article>`).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="file-text"></span><h3>لا توجد واجبات مسجلة</h3><p>يمكنك رفع ملف الواجب من الزر الموجود بالأسفل.</p></div>';
   return `<div class="student-app-dashboard">
+    ${pending?`<section class="portal-pending-banner"><span data-icon="calendar"></span><div><b>قيد التسجيل — في انتظار موافقة المدرس</b><small>بياناتك اتسجلت وتقدر تدخل بنفس الكود في أي وقت. الحضور والدرجات هتظهر تلقائيًا بعد الاعتماد.</small></div></section>`:''}
     <section class="student-app-header">
       <div class="student-identity"><span class="student-avatar">${esc(initials||'ط')}</span><div><span class="kicker"><span data-icon="user-check"></span> ${isParent?'تقرير ولي الأمر':'مرحبًا بك'}</span><h2>${esc(st.name)}</h2><p>${esc(st.grade||'-')} <span>•</span> ${esc(st.group||'-')}</p><code>${esc(st.studentCode)}</code></div></div>
       <details class="student-qr-details"><summary><span data-icon="qr"></span> عرض QR الطالب</summary><div class="real-qr-wrap">${makeQR(qrValue(st))}<small>${esc(qrValue(st))}</small></div></details>
@@ -293,15 +295,15 @@ async function loadStudentForPortal(code){
 async function setupStudent(){
   const form=document.getElementById('studentSearchForm'); if(!form) return;
   const input=form.querySelector('[name="query"],#studentQuery');
-  const remember=form.querySelector('[name="rememberCode"]');
-  const saved=safeStorageGet(LAST_STUDENT_CODE_KEY);
-  if(input && saved){input.value=saved; if(remember) remember.checked=true;}
+  const quickCode=toEnglishDigits(new URLSearchParams(location.search).get('code')||'').trim().toUpperCase();
+  safeStorageRemove(LAST_STUDENT_CODE_KEY);
+  if(input && quickCode)input.value=quickCode;
   input?.addEventListener('input',()=>{input.value=input.value.toUpperCase().replace(/\s+/g,'');});
   form.addEventListener('submit', async e=>{
     e.preventDefault();
     const code=toEnglishDigits(input?.value).trim().toUpperCase(); const box=document.getElementById('studentResult'); const button=form.querySelector('[type="submit"]');
     if(!code) return toast('اكتب كود الطالب أولًا');
-    if(remember?.checked) safeStorageSet(LAST_STUDENT_CODE_KEY,code); else safeStorageRemove(LAST_STUDENT_CODE_KEY);
+    safeStorageRemove(LAST_STUDENT_CODE_KEY);
     button?.classList.add('is-loading'); if(button)button.disabled=true; form.setAttribute('aria-busy','true');
     box.innerHTML='<div class="portal-loading"><span></span><b>جاري تحميل ملف الطالب...</b><small>لحظات بسيطة</small></div>';
     try{
@@ -309,9 +311,10 @@ async function setupStudent(){
       if(!st){box.innerHTML=`<div class="portal-empty portal-empty-large"><span class="iconbox" data-icon="search"></span><h3>الكود غير صحيح</h3><p>راجع الكود المكتوب وحاول مرة أخرى، مع التأكد من الحروف والأرقام.</p><button class="btn ghost" type="button" onclick="document.getElementById('studentQuery')?.focus()">إعادة المحاولة</button></div>`; hydrateIcons(); return;}
       box.innerHTML=studentProfileHTML(st,false); bindStudentDashboard(); bindHomeworkForms(); hydrateIcons();
       box.scrollIntoView({behavior:'smooth',block:'start'});
-    }catch(err){box.innerHTML=dataErrorHTML(); hydrateIcons();}
+    }catch(err){const raw=String(err?.code||'')+' '+String(err?.message||'');const message=/not-found/i.test(raw)?'كود الطالب غير موجود أو لم يُعتمد بعد':/internal|unavailable|failed-precondition|function.*unavailable/i.test(raw)?'خدمة بوابة الطالب لم تُنشر أو غير متاحة حاليًا':firebaseFriendlyError(err,'تعذر تحميل بيانات الطالب');box.innerHTML=dataErrorHTML(message);hydrateIcons();}
     finally{button?.classList.remove('is-loading'); if(button)button.disabled=false; form.removeAttribute('aria-busy');}
   });
+  if(quickCode&&!form.dataset.autoLoaded){form.dataset.autoLoaded='true';setTimeout(()=>form.requestSubmit(),120);}
 }
 var parentQrScanner = null;
 var lastParentStudent = null;
@@ -425,11 +428,15 @@ async function showParentReportByCode(code){
 
 async function setupParent(){
   const form=document.getElementById('parentSearchForm'); if(!form) return;
+  const input=form.querySelector('[name="parentCode"],[name="code"],[name="query"]');
+  const quickCode=toEnglishDigits(new URLSearchParams(location.search).get('code')||'').trim().toUpperCase();
+  if(input&&quickCode)input.value=quickCode;
   form.addEventListener('submit', async e=>{
     e.preventDefault();
     const code=toEnglishDigits(form.querySelector('[name="parentCode"],[name="code"],[name="query"]')?.value).trim().toUpperCase();
     await showParentReportByCode(code);
   });
+  if(quickCode&&!form.dataset.autoLoaded){form.dataset.autoLoaded='true';setTimeout(()=>form.requestSubmit(),120);}
 }
 
 window.copyParentReport = async function(code){
@@ -478,9 +485,11 @@ window.closeParentQrScanner = async function(){
   const modal=document.getElementById('parentQrModal'); if(modal) modal.hidden=true;
 };
 function bindHomeworkForms(){document.querySelectorAll('.homework-upload-form').forEach(form=>{form.onsubmit=async e=>{e.preventDefault(); const file=form.querySelector('input[type=file]').files[0]; const code=form.dataset.studentCode; if(!file) return toast('اختار ملف الواجب أولًا'); if(file.size>10*1024*1024) return toast('حجم الملف أكبر من المسموح'); try{if(window.MFCloud?.uploadHomework){await window.MFCloud.uploadHomework(file,code); toast('تم رفع الواجب بنجاح');} else toast('تعذر رفع الواجب، حاول لاحقًا.');}catch(err){toast('تعذر رفع الواجب، حاول لاحقًا.');}};});}
+function setupBookingSteps(form){if(!form)return;const steps=[...form.querySelectorAll('[data-booking-step]')],indicators=[...form.querySelectorAll('[data-booking-indicator]')];const show=number=>{steps.forEach(step=>step.classList.toggle('active',Number(step.dataset.bookingStep)===number));indicators.forEach(item=>{const value=Number(item.dataset.bookingIndicator);item.classList.toggle('active',value===number);item.classList.toggle('done',value<number);});};form.querySelector('[data-booking-next]')?.addEventListener('click',()=>{const first=steps[0],required=[...first.querySelectorAll('[required]')];for(const input of required){if(!input.checkValidity()){input.reportValidity();return;}}show(2);steps[1]?.scrollIntoView({behavior:'smooth',block:'center'});});form.querySelector('[data-booking-back]')?.addEventListener('click',()=>show(1));form.addEventListener('booking-success',()=>{show(3);form.scrollIntoView({behavior:'smooth',block:'center'});});show(1);}
 function setupBooking(){
   const form=document.getElementById('bookingForm');
   if(form){
+    setupBookingSteps(form);
     form.addEventListener('submit',async e=>{
       e.preventDefault();
       const button=form.querySelector('button[type="submit"]');
@@ -500,7 +509,8 @@ function setupBooking(){
         appData.bookings=Array.isArray(appData.bookings)?appData.bookings:[];
         appData.bookings.push(b); saveData(appData);
         renderBookingSuccess(b); renderBookingPreview();
-        toast('تم تسجيل الحجز بنجاح وهو الآن بانتظار موافقة المدرس');
+        form.dispatchEvent(new Event('booking-success'));
+        toast('تم تسجيل الحجز بنجاح — الحالة: قيد التسجيل');
         form.reset(); fillSelects();
       }catch(err){
         console.error(err); toast(firebaseFriendlyError(err,'تعذر إرسال الحجز. حاول مرة أخرى بعد قليل.'));
@@ -516,7 +526,10 @@ function setupBooking(){
     });
   }
 }
-function renderBookingSuccess(b){const box=document.getElementById('bookingSuccess'); if(!box) return; box.hidden=false; box.innerHTML=`<div class="booking-success-card"><span class="badge good">تم تسجيل الحجز بنجاح</span><h3>${esc(b.name)}</h3><div class="booking-code-spotlight"><small>كود متابعة الحجز</small><code>${esc(b.code)}</code><button class="small-btn primary" type="button" onclick="copyBookingCode('${esc(b.code)}')"><span data-icon="clipboard"></span> نسخ الكود</button></div><div class="grid grid-2"><p><b>الصف:</b> ${esc(b.grade)}</p><p><b>الشهر:</b> ${esc(b.month)}</p><p><b>المجموعة:</b> ${esc(b.group)}</p></div><p class="section-desc">صوّر الكود أو انسخه الآن. بعد موافقة المدرس استخدمه في متابعة الحجز ليظهر كود الطالب وكود ولي الأمر.</p><div class="hero-cta"><button class="btn ghost" type="button" onclick="document.querySelector('#bookingStatusForm [name=code]').value='${esc(b.code)}';document.getElementById('bookingStatusForm').requestSubmit()"><span data-icon="search"></span> متابعة الطلب</button><a class="btn primary" target="_blank" rel="noreferrer" href="${whatsappLink(appData.settings?.teacherPhone||TEACHER_WHATSAPP,`تم تسجيل حجز للطالب ${b.name} - كود الحجز ${b.code}`)}"><span data-icon="send"></span> تواصل واتساب</a></div></div>`; hydrateIcons();}
+function renderBookingSuccess(b){const box=document.getElementById('bookingSuccess'); if(!box) return; box.hidden=false; box.innerHTML=`<div class="booking-success-card"><span class="badge good">تم الحجز وإنشاء الحساب</span><h3>${esc(b.name)}</h3><p class="section-desc">الأكواد أرقام فقط. احتفظ بصورة منها قبل إغلاق الصفحة.</p><div class="booking-issued-codes"><div class="booking-code-spotlight student-code"><small>كود دخول الطالب</small><code>${esc(b.studentCode)}</code><button class="small-btn primary" type="button" onclick="copyBookingCode('${esc(b.studentCode)}')"><span data-icon="clipboard"></span> نسخ</button></div><div class="booking-code-spotlight parent-code"><small>كود ولي الأمر</small><code>${esc(b.parentCode)}</code><button class="small-btn ghost" type="button" onclick="copyBookingCode('${esc(b.parentCode)}')"><span data-icon="clipboard"></span> نسخ</button></div><div class="booking-code-spotlight tracking-code"><small>كود متابعة الحجز</small><code>${esc(b.code)}</code></div></div><div class="grid grid-2"><p><b>الصف:</b> ${esc(b.grade)}</p><p><b>الشهر:</b> ${esc(b.month)}</p><p><b>المجموعة:</b> ${esc(b.group)}</p></div><p class="section-desc">حساب الطالب جاهز الآن، وحالة التسجيل بانتظار موافقة المدرس.</p><div class="hero-cta"><a class="btn primary" href="student.html?code=${encodeURIComponent(b.studentCode||'')}"><span data-icon="user-check"></span> فتح بوابة الطالب</a><a class="btn ghost" href="parent.html?code=${encodeURIComponent(b.parentCode||'')}"><span data-icon="users"></span> فتح بوابة ولي الأمر</a><button class="btn ghost" type="button" onclick="document.querySelector('#bookingStatusForm [name=code]').value='${esc(b.code)}';document.getElementById('bookingStatusForm').requestSubmit()"><span data-icon="search"></span> متابعة الطلب</button></div></div>`; hydrateIcons();}
+// Keep the final step explicit until the teacher approves the booking.
+const originalRenderBookingSuccess=renderBookingSuccess;
+renderBookingSuccess=function(b){const box=document.getElementById('bookingSuccess');if(!box)return;box.hidden=false;box.innerHTML=`<div class="booking-success-card booking-student-pass"><span class="badge warn">قيد التسجيل</span><h3>احتفظ بكود الطالب</h3><p class="section-desc">ده الكود الوحيد اللي الطالب محتاجه للدخول ومتابعة بياناته.</p><div class="booking-code-spotlight student-code"><small>كود الطالب</small><code>${esc(b.studentCode)}</code><button class="small-btn primary" type="button" onclick="copyBookingCode('${esc(b.studentCode)}')"><span data-icon="clipboard"></span> نسخ الكود</button></div><div class="booking-result-qr"><div class="real-qr-wrap">${makeQR(b.studentCode)}<small>${esc(b.studentCode)}</small></div></div><a class="btn primary full-width" href="student.html?code=${encodeURIComponent(b.studentCode||'')}"><span data-icon="user-check"></span> الدخول إلى بوابة الطالب</a><p class="section-desc booking-approval-note">بيانات الطالب مسجلة، وفي انتظار موافقة المدرس.</p></div>`;hydrateIcons();};
 window.copyBookingCode=function(code){navigator.clipboard?.writeText(code); toast('تم نسخ الكود');};
 function renderBookingPreview(){const box=document.getElementById('bookingPreview'); if(!box) return; box.innerHTML='بيانات الحجز لا تظهر للزوار، ويمكن متابعة طلبك فقط باستخدام كود الحجز.';}
 async function renderBookingStatusResult(code){
@@ -526,12 +539,11 @@ async function renderBookingStatusResult(code){
   try{
     const b=await window.MFCloud?.getBookingStatus?.(code);
     if(!b){box.innerHTML='<p class="section-desc">لم يتم العثور على حجز بهذا الكود.</p>';return;}
-    const codes=(b.studentCode||b.parentCode)?`<div class="booking-issued-codes">${b.studentCode?`<p><b>كود الطالب:</b> <code>${esc(b.studentCode)}</code></p>`:''}${b.parentCode?`<p><b>كود ولي الأمر:</b> <code>${esc(b.parentCode)}</code></p>`:''}</div>`:'';
-    box.innerHTML=`<div class="mobile-row"><b>${esc(b.name)}</b><span class="badge ${String(b.status||'').includes('القبول')?'good':'warn'}">${esc(b.status||'حجز جديد')}</span><small>${esc(b.grade)} · ${esc(b.month)} · ${esc(b.group)}</small>${codes}</div>`;
+    box.innerHTML=`<div class="mobile-row"><b>${esc(b.name)}</b><span class="badge ${String(b.status||'').includes('القبول')?'good':'warn'}">${esc(b.status||'قيد التسجيل')}</span><small>${esc(b.grade)} · ${esc(b.month)} · ${esc(b.group)}</small></div>`;
   }catch(err){box.innerHTML=`<p class="section-desc">${esc(firebaseFriendlyError(err,'لم يتم العثور على حجز بهذا الكود.'))}</p>`;}
 }
 function renderHomeCounts(){const el=document.getElementById('liveCounts'); if(!el)return; el.innerHTML=`<div class="stat"><b>${GRADES.length}</b><small>صفوف دراسية</small></div><div class="stat"><b>${(appData.students||[]).length}</b><small>طلاب مسجلين</small></div><div class="stat"><b>QR</b><small>حضور وامتحانات</small></div>`;}
-function renderPublicLeaderboard(){const box=document.getElementById('publicLeaderboard'); if(!box) return; const rows=(appData.students||[]).map(normalizedStudent).map(st=>({st,c:calcStudent(st)})).sort((a,b)=>b.c.final-a.c.final).slice(0,3); box.innerHTML=rows.length?rows.map((x,i)=>`<div class="card"><span class="badge good">#${i+1}</span><h3>${esc(x.st.name)}</h3><p>${esc(x.st.grade||'')}</p><div class="progress"><span style="width:${x.c.final}%"></span></div><b>${x.c.final}%</b></div>`).join(''):`<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="star"></span><h3>لا توجد بيانات طلاب بعد</h3><p>لن يتم عرض بيانات تجريبية في الإنتاج.</p></div>`; hydrateIcons();}
+async function renderPublicLeaderboard(){const box=document.getElementById('publicLeaderboard');if(!box)return;box.innerHTML='<div class="skeleton" style="height:90px"></div>';let rows=[];try{rows=await window.MFCloud?.getPublicLeaderboard?.()||[];}catch(_){rows=[];}box.className='leaderboard-five';box.innerHTML=rows.length?rows.map((x,i)=>`<article class="leaderboard-row rank-${i+1}"><span class="leaderboard-rank">${i+1}</span><div><h3>${esc(x.name)}</h3><small>${esc(x.grade||'')} · حضور ${esc(x.attendancePct)}% · درجات ${esc(x.gradePct)}%</small><div class="progress"><span style="width:${Math.max(0,Math.min(100,Number(x.score)||0))}%"></span></div></div><b>${esc(x.score)}%</b></article>`).join(''):`<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="star"></span><h3>التنافس يبدأ مع أول نشاط</h3><p>سيظهر أفضل خمسة طلاب تلقائيًا بعد تسجيل الحضور والدرجات والواجبات.</p></div>`;hydrateIcons();}
 function setupReviews(){
   const form=document.getElementById('reviewForm'); if(!form)return; setupStarInputs();
   form.addEventListener('submit',async e=>{

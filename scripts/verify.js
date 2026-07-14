@@ -7,7 +7,7 @@ const { spawnSync } = require('child_process');
 const root = path.resolve(__dirname, '..');
 const requiredFiles = [
   'index.html', 'student.html', 'parent.html', 'exams.html', 'teacher-login.html',
-  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js',
+  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v55.css', 'assets/teacher.webp',
   'assets/firebase-sync.js', 'assets/firebase-config.js', 'assets/icon-maskable-512.png',
   'firestore.rules', 'storage.rules', 'firestore.indexes.json', 'firebase.json',
   'functions/index.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html'
@@ -24,7 +24,7 @@ for (const relative of requiredFiles) {
 if (!failures.length) ok('Required files exist');
 
 const jsFiles = [
-  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js',
+  'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js',
   'assets/firebase-sync.js', 'assets/firebase-config.js',
   'functions/index.js', 'local-server.js', 'scripts/build.js'
 ];
@@ -77,12 +77,12 @@ if (!syncSource.includes("doc('platform')") || syncSource.includes("legacySiteDo
   fail('Collection-backed settings migration is incomplete');
 }
 if (!failures.some(x => x.includes('public direct-write') || x.includes('Cloud Function enforcement') || x.includes('settings migration'))) {
-  ok('Public forms use secure Cloud Functions and v54 collection storage');
+  ok('Public forms use secure Cloud Functions and collection storage');
 }
 
 const functionsSource = read('functions/index.js');
 const callableNames = [
-  'getPortalStudent', 'createStudentAccess', 'createBooking', 'approveBooking', 'getBookingStatus', 'createReview',
+  'getPortalStudent', 'createStudentAccess', 'createBooking', 'approveBooking', 'rejectBooking', 'getBookingStatus', 'createReview', 'registerTeacherPushToken',
   'getExamDashboard', 'startExam', 'submitExam', 'registerHomeworkSubmission', 'reportClientError',
   'createBackupNow', 'listAutomaticBackups', 'getBackupDownloadUrl', 'restoreAutomaticBackup', 'deleteStudentSafely'
 ];
@@ -122,6 +122,10 @@ if (!read('functions/index.js').includes("db.collection('groups').doc(selectedSc
 if (!read('functions/index.js').includes("invoker: 'public'")) fail('Callable browser/CORS invoker configuration is missing');
 if (read('assets/app.js').includes('رقم ولي الأمر لازم يكون مختلف') || read('functions/index.js').includes('studentPhone === parentPhone')) fail('Same-number parent/student booking is still blocked');
 if (!read('assets/app.js').includes('toEnglishDigits') || !read('functions/index.js').includes('normalizeDigits')) fail('Arabic and English digit normalization is incomplete');
+if (!functionsSource.includes('uniqueNumericCode') || !functionsSource.includes('studentCode, parentCode') || !read('assets/app.js').includes('كود الطالب')) fail('Immediate numeric booking access code is incomplete');
+if (!rules.includes('match /booking_status/{bookingCode}') || !rules.includes('allow read, create: if false;')) fail('Booking status documents must be server-only');
+if (!read('assets/admin.js').includes('renderSchedules') || !read('assets/admin.js').includes('startBookingNotifications')) fail('V55 schedule or booking notification UI is incomplete');
+if (!read('teacher-login.html').includes('firebase-messaging-compat.js') || !sw.includes('onBackgroundMessage')) fail('Teacher background push notification wiring is incomplete');
 if (!read('assets/admin.js').includes('MFCloud?.approveBooking') || !read('functions/index.js').includes('tx.delete(bookingRef)')) fail('Atomic booking approval and queue removal are incomplete');
 if (/مجموعة السبت والثلاثاء|مجموعة الأحد والأربعاء|مجموعة الاثنين والخميس|أونلاين متابعة/.test(read('index.html'))) fail('Static booking groups must not appear in the booking form');
 if (!failures.some(x => x.includes('PWA') || x.includes('Service worker') || x.includes('Mobile install'))) ok('Android and iPhone PWA installation checks passed');

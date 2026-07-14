@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$RepositoryUrl = "https://github.com/byAmrkhaled0/mahmoud-fawzy-science-platform.git",
   [string]$TargetFolder = "mahmoud-fawzy-production-v54"
 )
@@ -40,4 +40,3 @@ Get-ChildItem -LiteralPath $SourceRoot -Force |
 Write-Host "Prepared Git folder:" -ForegroundColor Green
 Write-Host $TargetRoot -ForegroundColor Green
 Write-Host "Open that folder and run: npm run deploy:production" -ForegroundColor Yellow
-

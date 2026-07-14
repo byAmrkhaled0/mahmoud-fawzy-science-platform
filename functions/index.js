@@ -60,6 +60,23 @@ function randomCode(prefix, bytes = 6) {
   return `${prefix}-${body.slice(0, 4)}-${body.slice(4, 8)}`;
 }
 
+function randomNumericCode(length = 8) {
+  // Keep the first digit non-zero so spreadsheet/phone copy does not trim it.
+  const first = String(crypto.randomInt(1, 10));
+  let rest = '';
+  while (rest.length < length - 1) rest += String(crypto.randomInt(0, 10));
+  return first + rest;
+}
+
+async function uniqueNumericCode(collection, length = 8) {
+  for (let i = 0; i < 12; i += 1) {
+    const code = randomNumericCode(length);
+    const snap = await db.collection(collection).doc(code).get();
+    if (!snap.exists) return code;
+  }
+  throw new HttpsError('resource-exhausted', 'تعذر إنشاء كود رقمي فريد، حاول مرة أخرى.');
+}
+
 async function uniqueCode(collection, prefix) {
   for (let i = 0; i < 8; i += 1) {
     const code = randomCode(prefix, 8);
@@ -117,6 +134,35 @@ async function requireStaff(request, allowedRoles = ['admin', 'teacher', 'assist
   }
   return { uid: request.auth.uid, email: request.auth.token?.email || '', ...profile };
 }
+
+async function notifyStaffAboutBooking(booking) {
+  const snap = await db.collection('staff_push_tokens').where('active', '==', true).limit(500).get();
+  const tokens = [...new Set(snap.docs.map(doc => text(doc.data().token, 500)).filter(Boolean))];
+  if (!tokens.length) return;
+  const response = await admin.messaging().sendEachForMulticast({
+    tokens,
+    data: { type: 'new-booking', bookingCode: text(booking.code, 40), title: 'حجز طالب جديد', body: `${text(booking.name, 80)} · ${text(booking.grade, 60)} · ${text(booking.group, 80)}` },
+    webpush: { fcmOptions: { link: '/teacher-login.html?section=bookings' } }
+  });
+  const invalid = [];
+  response.responses.forEach((item, index) => {
+    if (!item.success && /registration-token-not-registered|invalid-registration-token/.test(String(item.error?.code || ''))) invalid.push(tokens[index]);
+  });
+  if (invalid.length) {
+    const batch = db.batch();
+    snap.docs.filter(doc => invalid.includes(doc.data().token)).forEach(doc => batch.set(doc.ref, { active: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true }));
+    await batch.commit();
+  }
+}
+
+exports.registerTeacherPushToken = onCall(CALLABLE_OPTIONS, async request => {
+  const staff = await requireStaff(request);
+  const token = text(request.data && request.data.token, 500);
+  if (token.length < 40) throw new HttpsError('invalid-argument', 'رمز الإشعارات غير صالح.');
+  const tokenId = hash(token).slice(0, 48);
+  await db.collection('staff_push_tokens').doc(tokenId).set({ token, uid: staff.uid, role: staff.role || '', active: true, userAgent: text(request.data?.userAgent, 250), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { registered: true };
+});
 
 function publicExamSession(sessionId, exam, questions, startedAtMs, expiresAtMs) {
   return {
@@ -210,6 +256,11 @@ function portalResponse(data, attempts, records = {}) {
     month: text(data.month, 40),
     academicYear: text(data.academicYear, 20),
     term: text(data.term, 40),
+    bookingCode: text(data.bookingCode, 40),
+    approvalStatus: text(data.approvalStatus || data.status, 100),
+    scheduleDays: text(data.scheduleDays, 100),
+    scheduleStartTime: text(data.scheduleStartTime, 20),
+    scheduleEndTime: text(data.scheduleEndTime, 20),
     paid: data.paid === true,
     paymentDate: text(data.paymentDate, 40),
     notes: text(data.notes, 1500),
@@ -224,9 +275,21 @@ function portalResponse(data, attempts, records = {}) {
 async function getStudentPortalByCode(code) {
   const normalized = normalizeCode(code);
   if (!validLegacyOrStrongCode(normalized)) throw new HttpsError('invalid-argument', 'كود غير صالح.');
-  const snap = await db.collection('student_portal').doc(cleanDocId(normalized)).get();
-  if (!snap.exists || snap.data().active === false) throw new HttpsError('not-found', 'لم يتم العثور على الطالب.');
-  return { code: normalized, data: snap.data() };
+  const id = cleanDocId(normalized);
+  const portalRef = db.collection('student_portal').doc(id);
+  const portalSnap = await portalRef.get();
+  if (portalSnap.exists) {
+    if (portalSnap.data().active === false) throw new HttpsError('not-found', 'حساب الطالب غير نشط.');
+    return { code: normalized, data: portalSnap.data() };
+  }
+  // Older releases sometimes created the student record before the dedicated
+  // portal document. Keep those real accounts working and repair them lazily.
+  const studentSnap = await db.collection('students').doc(id).get();
+  if (!studentSnap.exists || studentSnap.data().active === false) throw new HttpsError('not-found', 'لم يتم العثور على الطالب بهذا الكود.');
+  const student = { ...studentSnap.data(), studentCode: normalized, code: normalized };
+  const repaired = portalResponse(student, []);
+  await portalRef.set({ ...repaired, parentCode: text(student.parentCode, 40), active: true, repairedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { code: normalized, data: student };
 }
 
 async function getParentPortalByCode(code) {
@@ -278,6 +341,27 @@ exports.getPortalStudent = onCall(CALLABLE_OPTIONS, async request => {
   const studentCode = found.data.studentCode || found.data.code;
   const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
   return portalResponse(found.data, attempts, records);
+});
+
+exports.getPublicLeaderboard = onCall(CALLABLE_OPTIONS, async request => {
+  await rateLimitPublic('public-leaderboard', 'all', request, 30, 120, 60 * 1000);
+  const [studentsSnap, attendanceSnap, gradesSnap, homeworkSnap] = await Promise.all([
+    db.collection('students').where('active', '==', true).limit(500).get(),
+    db.collection('attendance').limit(2000).get(),
+    db.collection('grades').limit(2000).get(),
+    db.collection('homework_submissions').limit(2000).get()
+  ]);
+  const grouped = snap => { const map = new Map(); snap.docs.forEach(doc => { const row=doc.data()||{},code=normalizeCode(row.studentCode); if(!code)return; if(!map.has(code))map.set(code,[]); map.get(code).push(row); }); return map; };
+  const attendance=grouped(attendanceSnap),grades=grouped(gradesSnap),homeworks=grouped(homeworkSnap);
+  const rows=studentsSnap.docs.map(doc=>{
+    const st=doc.data()||{},code=normalizeCode(st.studentCode||st.code||doc.id);
+    const att=attendance.get(code)||st.attendance||[],present=att.filter(x=>['present','حاضر','متأخر'].includes(x.status)).length,attendancePct=att.length?Math.round(present/att.length*100):0;
+    const gradeRows=(grades.get(code)||st.grades||[]).filter(x=>Number.isFinite(Number(x.score))),gradePct=gradeRows.length?Math.round(gradeRows.reduce((sum,x)=>sum+Number(x.score),0)/gradeRows.length):0;
+    const hw=homeworks.get(code)||st.homeworks||[],homeworkPct=hw.length?Math.round(hw.filter(x=>String(x.status||'').includes('تم')||x.approved===true).length/hw.length*100):0;
+    const score=Math.round(attendancePct*.45+gradePct*.45+homeworkPct*.10);
+    return {name:text(st.studentName||st.name,60),grade:text(st.grade,50),score,attendancePct,gradePct,homeworkPct,activity:att.length+gradeRows.length+hw.length};
+  }).filter(x=>x.name&&x.activity>0).sort((a,b)=>b.score-a.score||b.attendancePct-a.attendancePct||b.gradePct-a.gradePct).slice(0,5);
+  return rows;
 });
 
 exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
@@ -385,7 +469,13 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   }
   const schedule = scheduleSnap.data();
   if (schedule.grade && schedule.grade !== 'كل الصفوف' && schedule.grade !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
-  const code = await uniqueCode('bookings', 'BK');
+  // All codes shown after booking are digits only and can be typed with Arabic
+  // or English numerals. They are issued immediately and never change later.
+  const [code, studentCode, parentCode] = await Promise.all([
+    uniqueNumericCode('bookings', 8),
+    uniqueNumericCode('student_portal', 8),
+    uniqueNumericCode('parent_portal', 8)
+  ]);
   const payload = {
     id: code,
     code,
@@ -403,7 +493,9 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     academicYear: text(body.academicYear, 20),
     term: text(body.term, 40),
     notes: text(body.notes, 1000),
-    status: 'بانتظار الموافقة',
+    studentCode,
+    parentCode,
+    status: 'قيد التسجيل',
     date: new Date().toISOString().slice(0, 10),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
@@ -421,15 +513,32 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     academicYear: payload.academicYear,
     term: payload.term,
     status: payload.status,
-    studentCode: '',
-    parentCode: '',
+    studentCode,
+    parentCode,
     updatedAt: FieldValue.serverTimestamp()
   };
   const batch = db.batch();
   batch.set(db.collection('bookings').doc(cleanDocId(code)), payload);
   batch.set(db.collection('booking_status').doc(cleanDocId(code)), statusPayload);
+  const provisionalStudent = {
+    ...payload,
+    bookingCode: code,
+    code: studentCode,
+    id: studentCode,
+    studentCode,
+    parentCode,
+    paid: false,
+    paymentDate: '',
+    active: true,
+    approvalStatus: 'قيد التسجيل'
+  };
+  const provisionalPortal = portalResponse(provisionalStudent, []);
+  batch.set(db.collection('students').doc(studentCode), provisionalStudent);
+  batch.set(db.collection('student_portal').doc(studentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
+  batch.set(db.collection('parent_portal').doc(parentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
   await batch.commit();
-  return { code, status: payload.status };
+  await notifyStaffAboutBooking(payload).catch(error => console.error('booking-push-failed', error));
+  return { code, bookingCode: code, studentCode, parentCode, status: payload.status };
 });
 
 exports.approveBooking = onCall(CALLABLE_OPTIONS, async request => {
@@ -437,122 +546,54 @@ exports.approveBooking = onCall(CALLABLE_OPTIONS, async request => {
   const bookingCode = normalizeCode(request.data && request.data.code);
   if (!validLegacyOrStrongCode(bookingCode)) throw new HttpsError('invalid-argument', 'كود الحجز غير صالح.');
 
+  // Candidates also let legacy bookings be approved instead of forcing the
+  // teacher to delete and recreate them. Existing V55 codes are preserved.
+  const [fallbackStudentCode, fallbackParentCode] = await Promise.all([
+    uniqueNumericCode('student_portal', 8),
+    uniqueNumericCode('parent_portal', 8)
+  ]);
+
   const bookingRef = db.collection('bookings').doc(cleanDocId(bookingCode));
   const statusRef = db.collection('booking_status').doc(cleanDocId(bookingCode));
-
-  for (let attemptNo = 0; attemptNo < 8; attemptNo += 1) {
-    const studentCode = randomCode('ST', 8);
-    const parentCode = randomCode('PR', 8);
-    const studentRef = db.collection('students').doc(cleanDocId(studentCode));
-    const studentPortalRef = db.collection('student_portal').doc(cleanDocId(studentCode));
-    const parentPortalRef = db.collection('parent_portal').doc(cleanDocId(parentCode));
-    const paymentRef = db.collection('payments').doc(cleanDocId(studentCode));
-
-    try {
-      const result = await db.runTransaction(async tx => {
-        const [bookingSnap, statusSnap, studentExists, parentExists] = await Promise.all([
-          tx.get(bookingRef), tx.get(statusRef), tx.get(studentPortalRef), tx.get(parentPortalRef)
-        ]);
-        const existingStatus = statusSnap.exists ? statusSnap.data() : {};
-        if (existingStatus.studentCode) {
-          return {
-            alreadyApproved: true,
-            bookingCode,
-            studentCode: text(existingStatus.studentCode, 40),
-            code: text(existingStatus.studentCode, 40),
-            parentCode: text(existingStatus.parentCode, 40),
-            name: text(existingStatus.name || existingStatus.studentName, 100),
-            studentName: text(existingStatus.name || existingStatus.studentName, 100),
-            grade: text(existingStatus.grade, 80),
-            group: text(existingStatus.group, 100),
-            month: text(existingStatus.month, 40),
-            academicYear: text(existingStatus.academicYear, 20),
-            term: text(existingStatus.term, 40),
-            active: true,
-            paid: false
-          };
-        }
-        if (!bookingSnap.exists) throw new HttpsError('not-found', 'الحجز غير موجود أو تم قبوله من قبل.');
-        if (studentExists.exists || parentExists.exists) throw new HttpsError('aborted', 'code-collision');
-
-        const booking = bookingSnap.data() || {};
-        const name = text(booking.studentName || booking.name, 100);
-        const student = {
-          studentCode,
-          code: studentCode,
-          parentCode,
-          bookingCode,
-          studentName: name,
-          name,
-          studentPhone: digits(booking.studentPhone),
-          parentPhone: digits(booking.parentPhone),
-          grade: text(booking.grade, 80),
-          month: text(booking.month, 40),
-          group: text(booking.group, 100),
-          academicYear: text(booking.academicYear, 20),
-          term: text(booking.term, 40),
-          notes: text(booking.notes, 1500),
-          paid: false,
-          paymentDate: '',
-          active: true,
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp()
-        };
-        const portal = portalResponse(student, []);
-        const acceptedStatus = {
-          code: bookingCode,
-          name,
-          studentName: name,
-          grade: student.grade,
-          month: student.month,
-          group: student.group,
-          scheduleId: text(booking.scheduleId, 100),
-          scheduleDays: text(booking.scheduleDays, 100),
-          scheduleStartTime: text(booking.scheduleStartTime, 20),
-          scheduleEndTime: text(booking.scheduleEndTime, 20),
-          academicYear: student.academicYear,
-          term: student.term,
-          status: 'تم القبول والتسجيل كطالب',
-          studentCode,
-          parentCode,
-          acceptedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp()
-        };
-
-        tx.set(studentRef, student);
-        tx.set(studentPortalRef, { ...portal, studentCode, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
-        tx.set(parentPortalRef, { ...portal, studentCode, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
-        tx.set(paymentRef, { studentCode, studentName: name, grade: student.grade, group: student.group, academicYear: student.academicYear, term: student.term, paid: false, paymentDate: '', updatedAt: FieldValue.serverTimestamp() });
-        tx.set(statusRef, acceptedStatus, { merge: true });
-        tx.delete(bookingRef);
-        tx.set(db.collection('activityLog').doc(), { action: 'تم قبول الحجز وتسجيل الطالب', meta: { bookingCode, studentCode }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
-
-        return {
-          bookingCode,
-          studentCode,
-          code: studentCode,
-          parentCode,
-          name,
-          studentName: name,
-          studentPhone: student.studentPhone,
-          parentPhone: student.parentPhone,
-          grade: student.grade,
-          month: student.month,
-          group: student.group,
-          academicYear: student.academicYear,
-          term: student.term,
-          notes: student.notes,
-          active: true,
-          paid: false
-        };
-      });
-      return result;
-    } catch (error) {
-      if (String(error?.message || '').includes('code-collision') && attemptNo < 7) continue;
-      throw error;
+  return db.runTransaction(async tx => {
+    const [bookingSnap, statusSnap] = await Promise.all([tx.get(bookingRef), tx.get(statusRef)]);
+    const status = statusSnap.exists ? statusSnap.data() : {};
+    if (!bookingSnap.exists) {
+      if (String(status.status || '').includes('القبول')) return { ...status, bookingCode, code: status.studentCode, alreadyApproved: true };
+      throw new HttpsError('not-found', 'الحجز غير موجود أو تم التعامل معه من قبل.');
     }
-  }
-  throw new HttpsError('resource-exhausted', 'تعذر إنشاء أكواد فريدة، حاول مرة أخرى.');
+    const booking = bookingSnap.data() || {};
+    const existingStudentCode = text(booking.studentCode || status.studentCode, 40);
+    const existingParentCode = text(booking.parentCode || status.parentCode, 40);
+    const studentCode = /^\d{6,12}$/.test(existingStudentCode) ? existingStudentCode : fallbackStudentCode;
+    const parentCode = /^\d{6,12}$/.test(existingParentCode) ? existingParentCode : fallbackParentCode;
+    const name = text(booking.studentName || booking.name, 100);
+    const student = {
+      ...booking,
+      id: studentCode,
+      code: studentCode,
+      studentCode,
+      parentCode,
+      bookingCode,
+      name,
+      studentName: name,
+      paid: false,
+      paymentDate: '',
+      active: true,
+      approvalStatus: 'تم القبول والتسجيل كطالب',
+      acceptedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    };
+    const portal = portalResponse(student, []);
+    tx.set(db.collection('students').doc(studentCode), student, { merge: true });
+    tx.set(db.collection('student_portal').doc(studentCode), { ...portal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(db.collection('parent_portal').doc(parentCode), { ...portal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(db.collection('payments').doc(studentCode), { studentCode, studentName: name, grade: student.grade, group: student.group, academicYear: student.academicYear, term: student.term, paid: false, paymentDate: '', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(statusRef, { ...status, code: bookingCode, name, studentName: name, studentCode, parentCode, status: 'تم القبول والتسجيل كطالب', acceptedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.delete(bookingRef);
+    tx.set(db.collection('activityLog').doc(), { action: 'تم قبول الحجز وتسجيل الطالب', meta: { bookingCode, studentCode }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
+    return { ...student, bookingCode, code: studentCode };
+  });
 });
 
 exports.getBookingStatus = onCall(CALLABLE_OPTIONS, async request => {
@@ -575,10 +616,32 @@ exports.getBookingStatus = onCall(CALLABLE_OPTIONS, async request => {
     scheduleEndTime: text(data.scheduleEndTime, 20),
     academicYear: text(data.academicYear, 20),
     term: text(data.term, 40),
-    status: text(data.status, 100),
-    studentCode: text(data.studentCode, 40),
-    parentCode: text(data.parentCode, 40)
+    status: text(data.status, 100)
   };
+});
+
+exports.rejectBooking = onCall(CALLABLE_OPTIONS, async request => {
+  const staff = await requireStaff(request);
+  const bookingCode = normalizeCode(request.data && request.data.code);
+  if (!validLegacyOrStrongCode(bookingCode)) throw new HttpsError('invalid-argument', 'كود الحجز غير صالح.');
+  const bookingRef = db.collection('bookings').doc(cleanDocId(bookingCode));
+  const statusRef = db.collection('booking_status').doc(cleanDocId(bookingCode));
+  return db.runTransaction(async tx => {
+    const [bookingSnap, statusSnap] = await Promise.all([tx.get(bookingRef), tx.get(statusRef)]);
+    const data = bookingSnap.exists ? bookingSnap.data() : (statusSnap.exists ? statusSnap.data() : null);
+    if (!data) throw new HttpsError('not-found', 'الحجز غير موجود.');
+    const studentCode = text(data.studentCode, 40);
+    const parentCode = text(data.parentCode, 40);
+    if (studentCode) {
+      tx.set(db.collection('students').doc(cleanDocId(studentCode)), { active: false, approvalStatus: 'تم رفض الحجز', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      tx.set(db.collection('student_portal').doc(cleanDocId(studentCode)), { active: false, approvalStatus: 'تم رفض الحجز', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
+    if (parentCode) tx.set(db.collection('parent_portal').doc(cleanDocId(parentCode)), { active: false, approvalStatus: 'تم رفض الحجز', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(statusRef, { ...data, status: 'تم رفض الحجز', rejectedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    if (bookingSnap.exists) tx.delete(bookingRef);
+    tx.set(db.collection('activityLog').doc(), { action: 'تم رفض حجز طالب', meta: { bookingCode, studentCode }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
+    return { code: bookingCode, status: 'تم رفض الحجز' };
+  });
 });
 
 exports.createReview = onCall(CALLABLE_OPTIONS, async request => {
@@ -981,7 +1044,7 @@ async function createPlatformBackup(reason, actor = {}) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const name = `automatic-backups/${stamp}-${text(reason || 'scheduled', 40).replace(/[^a-zA-Z0-9_-]/g, '-')}.json.gz`;
   const bucket = admin.storage().bucket();
-  await bucket.file(name).save(buffer, { resumable: false, contentType: 'application/gzip', metadata: { cacheControl: 'private, max-age=0', metadata: { schemaVersion: '53', reason: text(reason, 100) } } });
+  await bucket.file(name).save(buffer, { resumable: false, contentType: 'application/gzip', metadata: { cacheControl: 'private, max-age=0', metadata: { schemaVersion: '54', reason: text(reason, 100) } } });
   await db.collection('backup_runs').add({ name, reason: text(reason, 100), size: buffer.length, createdAt: FieldValue.serverTimestamp(), actorUid: text(actor.uid, 120) });
   return { name, size: buffer.length, createdAt: payload.createdAt };
 }
@@ -1079,7 +1142,7 @@ exports.restoreAutomaticBackup = onCall({ region: 'europe-west1', timeoutSeconds
   let payload;
   try { payload = JSON.parse(zlib.gunzipSync(compressed).toString('utf8')); }
   catch (_) { throw new HttpsError('data-loss', 'تعذر قراءة النسخة الاحتياطية.'); }
-  if (!payload || payload.schemaVersion !== 53 || payload.backupFormatVersion !== 2 || !payload.collections) {
+  if (!payload || ![53,54].includes(payload.schemaVersion) || payload.backupFormatVersion !== 2 || !payload.collections) {
     throw new HttpsError('failed-precondition', 'هذه النسخة ليست بصيغة الاستعادة الآمنة للإصدار 53.');
   }
 

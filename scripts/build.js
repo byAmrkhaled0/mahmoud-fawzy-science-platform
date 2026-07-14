@@ -21,6 +21,7 @@ const entriesToCopy = [
   'site.webmanifest',
   'teacher.webmanifest',
   'service-worker.js',
+  'firebase-messaging-sw.js',
   'offline.html'
 ];
 
