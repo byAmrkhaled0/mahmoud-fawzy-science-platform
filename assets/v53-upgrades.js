@@ -284,7 +284,9 @@
       try{
         let objects=[];
         if(/\.xlsx?$/i.test(file.name)){
-          if(typeof XLSX==='undefined')throw new Error('مكتبة Excel لم تُحمّل. استخدم CSV أو اتصل بالإنترنت ثم أعد المحاولة.');
+          if(progress){progress.hidden=false;progress.textContent='جاري تجهيز قارئ Excel…';}
+          if(typeof XLSX==='undefined')await window.MFAssets?.loadSpreadsheet?.();
+          if(typeof XLSX==='undefined')throw new Error('تعذر تجهيز قارئ Excel. استخدم CSV أو حاول مرة أخرى.');
           const workbook=XLSX.read(await file.arrayBuffer(),{type:'array'});const sheet=workbook.Sheets[workbook.SheetNames[0]];objects=XLSX.utils.sheet_to_json(sheet,{defval:''});
         }else{
           const rows=parseCSV(await file.text());if(rows.length<2)throw new Error('الملف لا يحتوي على بيانات.');const headers=rows[0];objects=rows.slice(1).map(values=>Object.fromEntries(headers.map((h,i)=>[h,values[i]||''])));

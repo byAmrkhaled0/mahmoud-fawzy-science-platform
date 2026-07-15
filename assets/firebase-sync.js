@@ -437,7 +437,7 @@
       },
       approveBooking:async code=>{
         if(!calls.approveBooking)throw new Error('Secure booking approval function is unavailable');
-        return calls.approveBooking({code:normalizeCode(code)});
+        return retryTransient(()=>calls.approveBooking({code:normalizeCode(code)}),1);
       },
       rejectBooking:async code=>{if(!calls.rejectBooking)throw new Error('Secure booking rejection function is unavailable');return calls.rejectBooking({code:normalizeCode(code)});},
       subscribeToBookings:handler=>db.collection('bookings').orderBy('createdAt','desc').limit(100).onSnapshot(snap=>handler(snap.docs.map(doc=>({id:doc.id,...doc.data()})),snap.docChanges()),error=>console.warn('booking-listener',error)),

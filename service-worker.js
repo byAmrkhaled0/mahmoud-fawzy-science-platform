@@ -1,11 +1,13 @@
-const CACHE_NAME = "mf-science-v5613-production-live-monthly-leaderboard";
+const CACHE_NAME = "mf-science-v5614-production-mobile-speed";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
-  "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/v55.css", "/assets/v56.css", "/assets/app.js", "/assets/admin.js",
-  "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/v55-admin.js", "/assets/v56-fixes.js", "/assets/logo-icon.svg",
-  "/assets/vendor/html5-qrcode-2.3.8.min.js", "/assets/vendor/xlsx-0.18.5.full.min.js",
-  "/assets/icon-192.png", "/assets/icon-512.png", "/assets/icon-maskable-512.png", "/assets/teacher.webp", "/site.webmanifest", "/teacher.webmanifest"
+  "/terms.html", "/offline.html", "/assets/site.css", "/assets/v55.css",
+  "/assets/v56.css", "/assets/app.js", "/assets/firebase-sync.js",
+  "/assets/firebase-config.js", "/assets/v53-upgrades.js",
+  "/assets/v56-fixes.js", "/assets/logo-icon.svg", "/assets/icon-192.png",
+  "/assets/icon-512.png", "/assets/icon-maskable-512.png",
+  "/assets/teacher.webp", "/site.webmanifest"
 ];
 
 // Firebase Messaging shares the same service worker as the PWA, avoiding a
@@ -84,13 +86,28 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if(url.pathname.startsWith("/assets/") || url.pathname.endsWith(".webmanifest") || url.pathname==="/service-worker.js"){
+  if(url.pathname==="/assets/firebase-config.js"){
     event.respondWith((async()=>{
       try{
         const response=await fetch(request,{cache:"no-store"});
         if(response.ok){const cache=await caches.open(CACHE_NAME);cache.put(request,response.clone());}
         return response;
-      }catch(_){return caches.match(request);}
+      }catch(_){return caches.match(request,{ignoreSearch:true});}
     })());
+    return;
+  }
+
+  if(url.pathname.startsWith("/assets/") || url.pathname.endsWith(".webmanifest")){
+    // Versioned static assets are returned from cache immediately on repeat
+    // visits while a background request refreshes them. Large QR and Excel
+    // bundles enter this cache only after the user actually opens that tool.
+    const network=fetch(request).then(async response=>{
+      if(response.ok){const cache=await caches.open(CACHE_NAME);await cache.put(request,response.clone());}
+      return response;
+    });
+    event.respondWith(caches.match(request,{ignoreSearch:true}).then(cached=>{
+      if(cached){event.waitUntil(network.catch(()=>null));return cached;}
+      return network.catch(()=>caches.match(request,{ignoreSearch:true}));
+    }));
   }
 });

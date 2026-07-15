@@ -11,6 +11,33 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
+var MF_ASSET_VERSION = '56.14.0';
+var mfLazyScriptPromises = Object.create(null);
+
+function loadLazyScript(key, source, readyCheck){
+  if(typeof readyCheck==='function'&&readyCheck())return Promise.resolve(true);
+  if(mfLazyScriptPromises[key])return mfLazyScriptPromises[key];
+  mfLazyScriptPromises[key]=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    script.async=true;
+    script.dataset.mfLazy=key;
+    const url=new URL(source,document.baseURI);
+    if(url.origin===location.origin)url.searchParams.set('v',MF_ASSET_VERSION);
+    script.src=url.href;
+    script.onload=()=>{
+      if(typeof readyCheck!=='function'||readyCheck())resolve(true);
+      else reject(new Error(`Lazy asset did not initialize: ${key}`));
+    };
+    script.onerror=()=>reject(new Error(`Lazy asset failed to load: ${key}`));
+    document.head.appendChild(script);
+  }).catch(error=>{delete mfLazyScriptPromises[key];throw error;});
+  return mfLazyScriptPromises[key];
+}
+
+window.MFAssets={
+  loadQrScanner:()=>loadLazyScript('qr-scanner','assets/vendor/html5-qrcode-2.3.8.min.js',()=>typeof window.Html5Qrcode==='function'),
+  loadSpreadsheet:()=>loadLazyScript('spreadsheet','assets/vendor/xlsx-0.18.5.full.min.js',()=>typeof window.XLSX!=='undefined')
+};
 var icons = {
   atom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="2"></circle><path d="M12 2c3 3.8 5 7.1 5 10s-2 6.2-5 10c-3-3.8-5-7.1-5-10s2-6.2 5-10Z"></path><path d="M2 12c3.8-3 7.1-5 10-5s6.2 2 10 5c-3.8 3-7.1 5-10 5S5.8 15 2 12Z"></path></svg>',
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 2v4M16 2v4M3 10h18"></path><rect x="3" y="5" width="18" height="17" rx="3"></rect></svg>',
@@ -571,9 +598,11 @@ window.printParentReport = function(){
 window.openParentQrScanner = async function(){
   const modal=document.getElementById('parentQrModal'); const reader=document.getElementById('parentQrReader');
   if(!modal || !reader) return;
-  modal.hidden=false; reader.innerHTML='';
+  modal.hidden=false; reader.innerHTML='<p class="section-desc">جاري تجهيز الكاميرا…</p>';
   try{
     const onDecoded = async decoded => { await closeParentQrScanner(); await showParentReportByCode(String(decoded||'').trim()); };
+    if(!window.Html5Qrcode)await window.MFAssets?.loadQrScanner?.();
+    reader.innerHTML='';
     if(window.Html5Qrcode){
       parentQrScanner = new Html5Qrcode('parentQrReader');
       await parentQrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}}, onDecoded);
@@ -831,9 +860,11 @@ window.startStudentScanner=async function(){
   const box=document.getElementById('qrScannerBox'),reader=document.getElementById('studentQrReader'),video=document.getElementById('qrScannerVideo');
   if(!box||!reader||!video)return;
   if(!window.isSecureContext&&!/^(localhost|127\.0\.0\.1)$/.test(location.hostname))return toast('الكاميرا تحتاج فتح الموقع من رابط HTTPS الآمن');
-  await window.stopStudentScanner();studentQrDecoded=false;box.hidden=false;reader.innerHTML='';
+  await window.stopStudentScanner();studentQrDecoded=false;box.hidden=false;reader.innerHTML='<p class="section-desc">جاري تجهيز الكاميرا…</p>';
   const decoded=async value=>{if(studentQrDecoded)return;studentQrDecoded=true;const input=document.getElementById('studentQuery');if(input)input.value=toEnglishDigits(value).trim().toUpperCase();await window.stopStudentScanner();document.getElementById('studentSearchForm')?.requestSubmit();};
   try{
+    if(!window.Html5Qrcode)await window.MFAssets?.loadQrScanner?.();
+    reader.innerHTML='';
     if(window.Html5Qrcode){
       video.hidden=true;reader.hidden=false;studentQrScanner=new Html5Qrcode('studentQrReader');
       await studentQrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:240,height:240},aspectRatio:1},decoded,()=>{});
@@ -902,7 +933,7 @@ function registerServiceWorker(){
       registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)worker.postMessage({type:'SKIP_WAITING'});});});
     }catch(_){ }
   });
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{if(sessionStorage.getItem('mf_sw_reloaded_v5613'))return;sessionStorage.setItem('mf_sw_reloaded_v5613','1');location.reload();}catch(_){ }});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{if(sessionStorage.getItem('mf_sw_reloaded_v5614'))return;sessionStorage.setItem('mf_sw_reloaded_v5614','1');location.reload();}catch(_){ }});
 }
 function setupPWAInstall(){
   const button=document.getElementById('installAppButton');if(!button)return;let installPrompt=null;

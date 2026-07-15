@@ -1,13 +1,12 @@
-# نشر الإصدار 56.13
+# نشر الإصدار 56.14
 
-## التحديث من 56.12 إلى 56.13
+## التحديث من 56.13 إلى 56.14
 
-هذا التحديث يحتوي على تعديل في Functions وقواعد Firestore والواجهة؛ بعد فك الضغط نفّذ:
+هذا التحديث يحتوي على تحسين في Functions والواجهة فقط؛ لا توجد قواعد جديدة مطلوبة. بعد فك الضغط نفّذ:
 
 ```powershell
 $env:FUNCTIONS_DISCOVERY_TIMEOUT="60"
 firebase deploy --only functions
-firebase deploy --only firestore:rules
 npm run build
 firebase deploy --only hosting
 ```

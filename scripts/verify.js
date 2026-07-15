@@ -135,11 +135,11 @@ const fixesSourceCode = read('assets/v56-fixes.js');
 if (!adminSourceCode.includes("loadSiteData({fast:true})") || !adminSourceCode.includes('hydrateAdminRecords')) fail('Staged admin loading is missing');
 if (!appSourceCode.includes('staffCacheOnly') || !appSourceCode.includes('if(isStaffWorkspace())return;')) fail('Compact staff browser cache protection is missing');
 if (!fixesSourceCode.includes('showMoreAdminStudents') || !fixesSourceCode.includes('slice(0,adminStudentVisible)')) fail('Paginated student rendering is missing');
-if (!appSourceCode.includes('window.Html5Qrcode') || !read('student.html').includes('html5-qrcode-2.3.8.min.js')) fail('Cross-browser student QR scanner fallback is missing');
+if (!appSourceCode.includes('window.Html5Qrcode') || !appSourceCode.includes("loadQrScanner:()=>loadLazyScript('qr-scanner'")) fail('Cross-browser lazy QR scanner fallback is missing');
 for (const page of ['student.html','parent.html','teacher-login.html']) {
-  if (!read(page).includes('assets/vendor/html5-qrcode-2.3.8.min.js')) fail(`Local QR scanner bundle is missing from ${page}`);
+  if (read(page).includes('assets/vendor/html5-qrcode-2.3.8.min.js')) fail(`QR scanner is still eagerly loaded by ${page}`);
 }
-if (!read('teacher-login.html').includes('assets/vendor/xlsx-0.18.5.full.min.js')) fail('Local Excel bundle is missing from the teacher page');
+if (read('teacher-login.html').includes('assets/vendor/xlsx-0.18.5.full.min.js') || !read('assets/v53-upgrades.js').includes('loadSpreadsheet')) fail('Excel must load only when an Excel import starts');
 if (/unpkg\.com\/html5-qrcode|cdn\.jsdelivr\.net\/npm\/xlsx/.test([read('student.html'),read('parent.html'),read('teacher-login.html')].join('\n'))) fail('Tracking-sensitive QR or Excel CDN dependency is still present');
 if (!fs.existsSync(path.join(root,'assets/vendor/html5-qrcode-2.3.8.min.js')) || !fs.existsSync(path.join(root,'assets/vendor/xlsx-0.18.5.full.min.js'))) fail('Vendored QR or Excel file is missing');
 if (!adminSourceCode.includes("toggleAttribute('inert',shouldHide)") || !adminSourceCode.includes('adminDrawerReturnFocus')) fail('Mobile admin drawer focus isolation is incomplete');
@@ -165,7 +165,10 @@ const manifest = JSON.parse(read('site.webmanifest'));
 if (manifest.display !== 'standalone' || manifest.scope !== '/' || !Array.isArray(manifest.icons)) fail('PWA manifest is incomplete');
 if (!manifest.icons.some(icon => String(icon.purpose || '').includes('maskable') && icon.sizes === '512x512')) fail('Maskable PWA icon is missing');
 const sw = read('service-worker.js');
-if (!/mf-science-v\d+-production/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png') || !sw.includes('/teacher.webmanifest')) fail('Service worker app shell is incomplete');
+const appShellSource = sw.slice(0,sw.indexOf('];')+2);
+if (!/mf-science-v\d+-production/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png')) fail('Service worker app shell is incomplete');
+if (/assets\/vendor|assets\/admin\.js|teacher-login\.html/.test(appShellSource) || !sw.includes('event.waitUntil(network.catch')) fail('Large admin assets are still precached or repeat-visit caching is missing');
+if (!read('index.html').includes('<script defer src="https://www.gstatic.com/firebasejs/')) fail('Firebase scripts are not downloaded in parallel with deferred execution');
 const upgrade = read('assets/v53-upgrades.js');
 if (!upgrade.includes('beforeinstallprompt') || !upgrade.includes('إضافة إلى الشاشة الرئيسية') || !upgrade.includes('navigator.standalone')) fail('Mobile install handling is incomplete');
 if (!read('assets/app.js').includes('renderBookingScheduleOptions') || !read('index.html').includes('bookingScheduleId')) fail('Booking schedule linkage is incomplete');

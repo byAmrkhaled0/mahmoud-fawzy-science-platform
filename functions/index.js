@@ -527,7 +527,12 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   const requestedGroup = text(body.group, 100);
   const selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
   if (!selectedScheduleId) throw new HttpsError('failed-precondition', 'اختر موعدًا من مواعيد الصف المتاحة.');
-  const scheduleSnap = await db.collection('groups').doc(selectedScheduleId).get();
+  // These reads do not depend on one another. Parallel execution removes one
+  // complete Firestore round-trip from each registration request.
+  const [scheduleSnap, code] = await Promise.all([
+    db.collection('groups').doc(selectedScheduleId).get(),
+    uniqueUnifiedAccessCode(8)
+  ]);
   if (!scheduleSnap.exists || scheduleSnap.data().active === false) {
     throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
   }
@@ -536,7 +541,6 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   if (text(schedule.name, 100) !== requestedGroup) throw new HttpsError('failed-precondition', 'المجموعة المختارة تغيّرت. حدّث الصفحة واخترها من جديد.');
   // All codes shown after booking are digits only and can be typed with Arabic
   // or English numerals. They are issued immediately and never change later.
-  const code = await uniqueUnifiedAccessCode(8);
   const studentCode = code;
   const parentCode = code;
   const payload = {
