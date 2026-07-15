@@ -13,9 +13,9 @@
 <link href="assets/logo-icon.svg" rel="icon" type="image/svg+xml"/>
 <link href="assets/icon-192.png" rel="apple-touch-icon"/>
 <link href="site.webmanifest" rel="manifest"/>
-<link href="assets/site.css?v=56.8.0" rel="stylesheet"/>
-<link href="assets/v55.css?v=56.8.0" rel="stylesheet"/>
-<link href="assets/v56.css?v=56.8.0" rel="stylesheet"/>
+<link href="assets/site.css?v=56.13.0" rel="stylesheet"/>
+<link href="assets/v55.css?v=56.13.0" rel="stylesheet"/>
+<link href="assets/v56.css?v=56.13.0" rel="stylesheet"/>
 <title>بوابة الطالب | مستر محمود ابراهيم فوزي</title>
 <meta content="بوابة الطالب الخاصة بمستر محمود إبراهيم فوزي للعلوم لعرض الملف الدراسي بكود الطالب فقط." name="description"/>
 </head>
@@ -50,7 +50,7 @@
 <button class="btn ghost" onclick="startStudentScanner()" type="button"><span data-icon="qr"></span> مسح QR</button>
 </div>
 <p>بياناتك تظهر بالكود فقط، والحضور والتسميع يتم تسجيلهم من المدرس.</p>
-<div class="qr-scanner-box" hidden="" id="qrScannerBox"><video id="qrScannerVideo" playsinline=""></video><p>وجّه الكاميرا على QR الطالب.</p><button class="btn ghost small" onclick="stopStudentScanner()" type="button">إيقاف المسح</button></div>
+<div class="qr-scanner-box" hidden="" id="qrScannerBox"><div id="studentQrReader"></div><video id="qrScannerVideo" playsinline="" hidden></video><p>وجّه الكاميرا على QR الحساب الموحّد.</p><button class="btn ghost small" onclick="stopStudentScanner()" type="button">إيقاف المسح</button></div>
 </form>
 </div>
 </section>
@@ -90,10 +90,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
-<script src="assets/firebase-config.js?v=56.8.0"></script>
-<script src="assets/firebase-sync.js?v=56.8.0"></script>
-<script src="assets/app.js?v=56.8.0"></script>
-<script src="assets/v53-upgrades.js?v=56.8.0"></script>
-<script src="assets/v56-fixes.js?v=56.8.0"></script>
+<script src="assets/vendor/html5-qrcode-2.3.8.min.js" defer></script>
+<script src="assets/firebase-config.js?v=56.13.0"></script>
+<script src="assets/firebase-sync.js?v=56.13.0"></script>
+<script src="assets/app.js?v=56.13.0"></script>
+<script src="assets/v53-upgrades.js?v=56.13.0"></script>
+<script src="assets/v56-fixes.js?v=56.13.0"></script>
 </body>
 </html>

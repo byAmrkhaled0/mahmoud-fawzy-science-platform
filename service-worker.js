@@ -1,9 +1,10 @@
-const CACHE_NAME = "mf-science-v568-production-booking-refresh";
+const CACHE_NAME = "mf-science-v5613-production-live-monthly-leaderboard";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
   "/terms.html", "/teacher-login.html", "/offline.html", "/assets/site.css", "/assets/v55.css", "/assets/v56.css", "/assets/app.js", "/assets/admin.js",
   "/assets/firebase-sync.js", "/assets/firebase-config.js", "/assets/v53-upgrades.js", "/assets/v55-admin.js", "/assets/v56-fixes.js", "/assets/logo-icon.svg",
+  "/assets/vendor/html5-qrcode-2.3.8.min.js", "/assets/vendor/xlsx-0.18.5.full.min.js",
   "/assets/icon-192.png", "/assets/icon-512.png", "/assets/icon-maskable-512.png", "/assets/teacher.webp", "/site.webmanifest", "/teacher.webmanifest"
 ];
 
@@ -69,11 +70,15 @@ self.addEventListener("fetch", event => {
   if(request.mode==="navigate"){
     event.respondWith((async()=>{
       try{
-        const response=await fetch(request,{cache:"no-store"});
+        const response=await fetch(request);
         if(response.ok){const cache=await caches.open(CACHE_NAME);cache.put(request,response.clone());}
         return response;
       }catch(_){
-        return (await caches.match(request)) || (await caches.match("/offline.html"));
+        // Query strings such as ?code=12345678 must fall back to the cached
+        // HTML page, not to offline.html.
+        return (await caches.match(url.pathname,{ignoreSearch:true})) ||
+          (await caches.match(request,{ignoreSearch:true})) ||
+          (await caches.match("/offline.html"));
       }
     })());
     return;

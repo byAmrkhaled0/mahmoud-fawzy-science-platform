@@ -12,9 +12,9 @@
 <link href="assets/logo-icon.svg" rel="icon" type="image/svg+xml"/>
 <link href="assets/icon-192.png" rel="apple-touch-icon"/>
 <link href="site.webmanifest" rel="manifest"/>
-<link href="assets/site.css?v=56.8.0" rel="stylesheet"/>
-<link href="assets/v55.css?v=56.8.0" rel="stylesheet"/>
-<link href="assets/v56.css?v=56.8.0" rel="stylesheet"/>
+<link href="assets/site.css?v=56.13.0" rel="stylesheet"/>
+<link href="assets/v55.css?v=56.13.0" rel="stylesheet"/>
+<link href="assets/v56.css?v=56.13.0" rel="stylesheet"/>
 <title>صفحة ولي الأمر | مستر محمود ابراهيم فوزي</title>
 <meta content="صفحة ولي الأمر لمتابعة تقرير الطالب: الحضور، الغياب، التسميع، الدرجات، الواجبات وحالة الدفع." name="description"/>
 </head>
@@ -40,12 +40,12 @@
 <div>
 <span class="kicker"><span data-icon="users"></span> صفحة ولي الأمر</span>
 <h1>تقرير الطالب كامل في مكان واحد</h1>
-<p>اكتب كود ولي الأمر الخاص بابنك لعرض تقرير شهري واضح ومنظم مناسب للموبايل ويمكن مشاركته على واتساب.</p>
+<p>اكتب نفس كود الطالب الموحّد أو امسح الباركود لعرض تقرير شهري واضح يمكن مشاركته على واتساب.</p>
 </div>
 <form class="card parent-search-v29" id="parentSearchForm">
-<div class="field portal-code-field"><label for="parentCode">كود ولي الأمر</label><div class="code-input-wrap"><span data-icon="users"></span><input id="parentCode" name="parentCode" placeholder="اكتب كود ولي الأمر المكوّن من 8 أرقام" inputmode="numeric" pattern="[0-9٠-٩۰-۹]{8}" maxlength="8" autocomplete="off" spellcheck="false" enterkeyhint="go" required=""/></div><small>استخدم كود ولي الأمر المنفصل الذي استلمته من المدرس.</small></div>
-<button class="btn primary" type="submit"><span data-icon="file-text"></span> عرض تقرير الطالب</button>
-<p>لحماية البيانات، كود ولي الأمر منفصل عن كود الطالب ولا يُعرض في QR الطالب.</p>
+<div class="field portal-code-field"><label for="parentCode">كود الحساب الموحّد</label><div class="code-input-wrap"><span data-icon="users"></span><input id="parentCode" name="parentCode" placeholder="اكتب الكود الموحّد المكوّن من 8 أرقام" inputmode="numeric" pattern="[0-9٠-٩۰-۹]{8}" maxlength="8" autocomplete="off" spellcheck="false" enterkeyhint="go" required=""/></div><small>نفس الكود والباركود المستخدمين في بوابة الطالب.</small></div>
+<div class="student-search-actions-v29"><button class="btn primary" type="submit"><span data-icon="file-text"></span> عرض تقرير الطالب</button><button class="btn ghost" type="button" onclick="openParentQrScanner()"><span data-icon="qr"></span> مسح الباركود</button></div>
+<p>يستخدم الطالب وولي الأمر كودًا واحدًا؛ احتفظوا به ولا تشاركوه خارج الأسرة.</p>
 </form>
 </div>
 </section>
@@ -54,7 +54,7 @@
 <div class="card result-box parent-result-v29" id="parentResult">
 <div class="empty-state compact-empty-v29">
 <span class="iconbox" data-icon="file-text"></span>
-<h3>اكتب كود ولي الأمر لعرض التقرير</h3>
+<h3>اكتب كود الحساب الموحّد لعرض التقرير</h3>
 <p>سيظهر تقرير ولي الأمر هنا بشكل كامل ومنظم.</p>
 </div>
 </div>
@@ -85,7 +85,7 @@
     <div class="profile-top">
       <div>
         <h3>مسح QR الطالب</h3>
-        <p class="section-desc">وجّه كاميرا الموبايل على QR الخاص بالطالب لفتح تقرير ولي الأمر.</p>
+        <p class="section-desc">وجّه كاميرا الموبايل على QR الحساب الموحّد لفتح تقرير ولي الأمر.</p>
       </div>
       <button class="small-btn danger" type="button" onclick="closeParentQrScanner()">إغلاق</button>
     </div>
@@ -99,11 +99,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
-<script src="assets/firebase-config.js?v=56.8.0"></script>
-<script src="assets/firebase-sync.js?v=56.8.0"></script>
-<script src="assets/app.js?v=56.8.0"></script>
-<script src="assets/v53-upgrades.js?v=56.8.0"></script>
-<script src="assets/v56-fixes.js?v=56.8.0"></script>
+<script src="assets/vendor/html5-qrcode-2.3.8.min.js" defer></script>
+<script src="assets/firebase-config.js?v=56.13.0"></script>
+<script src="assets/firebase-sync.js?v=56.13.0"></script>
+<script src="assets/app.js?v=56.13.0"></script>
+<script src="assets/v53-upgrades.js?v=56.13.0"></script>
+<script src="assets/v56-fixes.js?v=56.13.0"></script>
 </body>
 </html>

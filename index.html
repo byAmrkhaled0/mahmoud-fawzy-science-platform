@@ -15,9 +15,9 @@
 <link href="assets/logo-icon.svg" rel="icon" type="image/svg+xml"/>
 <link href="assets/icon-192.png" rel="apple-touch-icon"/>
 <link href="site.webmanifest" rel="manifest"/>
-<link href="assets/site.css?v=56.8.0" rel="stylesheet"/>
-<link href="assets/v55.css?v=56.8.0" rel="stylesheet"/>
-<link href="assets/v56.css?v=56.8.0" rel="stylesheet"/>
+<link href="assets/site.css?v=56.13.0" rel="stylesheet"/>
+<link href="assets/v55.css?v=56.13.0" rel="stylesheet"/>
+<link href="assets/v56.css?v=56.13.0" rel="stylesheet"/>
 </head>
 <body id="top">
 <header class="site-header">
@@ -55,7 +55,7 @@
 <a class="btn ghost" href="student.html"><span data-icon="user-check"></span> دخول الطالب</a>
 <button class="btn ghost" id="installAppButton" type="button" hidden><span data-icon="external-link"></span> تثبيت المنصة</button>
 </div>
-<div class="hero-stats" id="liveCounts"><div class="stat"><b>5</b><small>صفوف دراسية</small></div><div class="stat"><b>24/7</b><small>بوابة طالب</small></div><div class="stat"><b>QR</b><small>حضور وامتحانات</small></div></div>
+<div class="hero-stats" id="liveCounts"><div class="stat"><b>5</b><small>صفوف دراسية</small></div><div class="stat"><b>متاحة</b><small>بوابة الطالب</small></div><div class="stat"><b>QR</b><small>حضور وامتحانات</small></div></div>
 </div>
 <div aria-label="صورة مستر محمود إبراهيم فوزي" class="teacher-frame">
 <div class="floating-card one">تقارير ذكية</div>
@@ -112,24 +112,12 @@
 <div class="field"><label>الترم</label><select id="bookingTerm" name="term" required=""></select></div>
 <div class="field booking-group-picker"><label>ابحث عن مجموعتك واختار الموعد</label><div class="group-search-wrap"><span data-icon="search"></span><input id="bookingGroupSearch" type="search" placeholder="اكتب اسم المجموعة أو اليوم" autocomplete="off"/></div><select id="bookingGroup" name="group" required=""><option value="">جاري تحميل المواعيد...</option></select><input id="bookingScheduleId" name="scheduleId" type="hidden"/><small class="field-hint" id="bookingGroupHint">اختار الصف أولًا، ثم ابحث باسم مجموعتك أو يوم الحصة.</small></div>
 <div class="field" style="grid-column:1/-1"><label>ملاحظات</label><textarea name="notes" placeholder="أي تفاصيل مهمة عن الطالب أو المستوى"></textarea></div>
-<div class="booking-step-actions"><button class="btn ghost" type="button" data-booking-back>رجوع</button><button class="btn primary" type="submit"><span data-icon="send"></span> تأكيد الحجز وإظهار الأكواد</button></div>
+<div class="booking-step-actions"><button class="btn ghost" type="button" data-booking-back>رجوع</button><button class="btn primary" type="submit"><span data-icon="send"></span> تأكيد الحجز وإظهار الكود الموحّد</button></div>
 </div>
 <div class="booking-step booking-result-step" data-booking-step="3">
 <div id="bookingSuccess" class="booking-success-box" hidden></div>
 </div>
 </form>
-<details class="card booking-side-card booking-private-card booking-tracking-card">
-<summary class="booking-tracking-toggle" aria-label="متابعة حالة حجز سابق" title="متابعة حالة الحجز"><span data-icon="search"></span></summary>
-<div class="booking-tracking-content"><span class="kicker"><span data-icon="search"></span> متابعة حالة الحجز</span>
-<h3>عندك حجز سابق؟</h3>
-<p>اكتب كود المتابعة الرقمي لمعرفة هل تم اعتماد التسجيل.</p>
-<form id="bookingStatusForm" class="booking-status-form">
-<div class="field"><label>كود متابعة الحجز</label><input name="code" inputmode="numeric" placeholder="اكتب الأرقام فقط" autocomplete="off"/></div>
-<button class="btn ghost" type="submit"><span data-icon="search"></span> متابعة الحالة</button>
-</form>
-<div id="bookingStatusResult" class="booking-status-result"></div>
-<div id="bookingPreview" class="booking-privacy-note"></div>
-</div></details>
 </div>
 </div>
 </section>
@@ -138,8 +126,8 @@
 <section class="section tight leaderboard-section" id="top-students">
 <div class="container">
 <div class="section-head">
-<div><span class="kicker"><span data-icon="star"></span> لوحة أوائل الطلاب</span><h2 class="section-title">تحفيز شهري للطلاب المتميزين</h2><p class="section-desc">ترتيب تلقائي حسب متوسط الدرجات والحضور والواجبات من بيانات المنصة.</p></div>
-<a class="btn ghost" href="student.html"><span data-icon="user-check"></span> اعرف مستواك</a>
+<div><span class="kicker"><span data-icon="star"></span> لوحة أوائل الطلاب</span><h2 class="section-title">تحفيز شهري للطلاب المتميزين</h2><p class="section-desc">ترتيب تلقائي حسب الدرجات والحضور والتسميع والواجب من بيانات المنصة.</p></div>
+<div class="mobile-actions leaderboard-head-actions"><button class="btn ghost" id="refreshLeaderboardButton" type="button" onclick="refreshPublicLeaderboard()"><span data-icon="refresh-cw"></span> تحديث الترتيب</button><a class="btn ghost" href="student.html"><span data-icon="user-check"></span> اعرف مستواك</a></div>
 </div>
 <div class="grid grid-3" id="publicLeaderboard"></div>
 </div>
@@ -208,10 +196,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
-<script src="assets/firebase-config.js?v=56.8.0"></script>
-<script src="assets/firebase-sync.js?v=56.8.0"></script>
-<script src="assets/app.js?v=56.8.0"></script>
-<script src="assets/v53-upgrades.js?v=56.8.0"></script>
-<script src="assets/v56-fixes.js?v=56.8.0"></script>
+<script src="assets/firebase-config.js?v=56.13.0"></script>
+<script src="assets/firebase-sync.js?v=56.13.0"></script>
+<script src="assets/app.js?v=56.13.0"></script>
+<script src="assets/v53-upgrades.js?v=56.13.0"></script>
+<script src="assets/v56-fixes.js?v=56.13.0"></script>
 </body>
 </html>

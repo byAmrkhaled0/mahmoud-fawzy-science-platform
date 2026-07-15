@@ -1,4 +1,16 @@
-# نشر الإصدار 54
+# نشر الإصدار 56.13
+
+## التحديث من 56.12 إلى 56.13
+
+هذا التحديث يحتوي على تعديل في Functions وقواعد Firestore والواجهة؛ بعد فك الضغط نفّذ:
+
+```powershell
+$env:FUNCTIONS_DISCOVERY_TIMEOUT="60"
+firebase deploy --only functions
+firebase deploy --only firestore:rules
+npm run build
+firebase deploy --only hosting
+```
 
 ## Vercel
 
@@ -29,4 +41,6 @@ firebase deploy --only hosting
 npm run firebase:deploy:all
 ```
 
-راجع `UPGRADE_V54_AR.md` للاختبار بعد النشر.
+مهم: لا تكتفِ بنشر Vercel؛ تعديلات الحجز والكود الموحّد والتسميع والواجب وتصريح رفع الملفات تحتاج نشر Firebase Functions والقواعد والفهارس أيضًا. انشر الدوال أولًا ثم القواعد ثم الواجهة مباشرة.
+
+راجع `UPGRADE_V56_AR.md` للاختبار بعد النشر.

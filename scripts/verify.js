@@ -59,6 +59,23 @@ for (const htmlFile of htmlFiles) {
 }
 if (!failures.some(x => x.startsWith('Duplicate IDs') || x.startsWith('Broken local reference'))) ok('HTML IDs and local references passed');
 
+const buttonSources = [...htmlFiles, ...jsFiles.filter(file => file.startsWith('assets/'))].map(relative => ({ relative, source: read(relative) }));
+const combinedButtonSource = buttonSources.map(item => item.source).join('\n');
+const inlineHandlers = new Map();
+for (const item of buttonSources) {
+  for (const match of item.source.matchAll(/\bon(?:click|change|input|submit)\s*=\s*["']\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
+    if (!inlineHandlers.has(match[1])) inlineHandlers.set(match[1], new Set());
+    inlineHandlers.get(match[1]).add(item.relative);
+  }
+}
+for (const [name, locations] of inlineHandlers) {
+  if (['location', 'history', 'window'].includes(name)) continue;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const definitions = [new RegExp(`function\\s+${escaped}\\b`), new RegExp(`window\\.${escaped}\\s*=`), new RegExp(`(?:const|let|var)\\s+${escaped}\\s*=`)];
+  if (!definitions.some(pattern => pattern.test(combinedButtonSource))) fail(`Missing button handler ${name} used in ${[...locations].join(', ')}`);
+}
+if (!failures.some(x => x.startsWith('Missing button handler'))) ok(`All ${inlineHandlers.size} inline action handlers are defined`);
+
 const appCheckScanFiles = ['assets/firebase-config.js', 'assets/firebase-sync.js', 'functions/index.js', ...htmlFiles];
 for (const relative of appCheckScanFiles) {
   const content = read(relative);
@@ -82,14 +99,28 @@ if (!failures.some(x => x.includes('public direct-write') || x.includes('Cloud F
 
 const functionsSource = read('functions/index.js');
 const callableNames = [
-  'getPortalStudent', 'createStudentAccess', 'createBooking', 'approveBooking', 'rejectBooking', 'getBookingStatus', 'createReview', 'registerTeacherPushToken',
-  'getExamDashboard', 'startExam', 'submitExam', 'registerHomeworkSubmission', 'reportClientError',
+  'getPortalStudent', 'createStudentAccess', 'createBooking', 'approveBooking', 'rejectBooking', 'getBookingStatus', 'createReview', 'recordClassProgress', 'registerTeacherPushToken',
+  'getExamDashboard', 'startExam', 'submitExam', 'prepareHomeworkUpload', 'registerHomeworkSubmission', 'reportClientError',
   'createBackupNow', 'listAutomaticBackups', 'getBackupDownloadUrl', 'restoreAutomaticBackup', 'deleteStudentSafely'
 ];
 for (const name of callableNames) {
   if (!functionsSource.includes(`exports.${name} = onCall`)) fail(`Missing callable function export: ${name}`);
 }
+const firebaseSyncSource = read('assets/firebase-sync.js');
+const callableBindings = [...firebaseSyncSource.matchAll(/\w+\s*:\s*callable\('([^']+)'\)/g)].map(match => match[1]);
+for (const name of callableBindings) {
+  if (!functionsSource.includes(`exports.${name} = onCall`)) fail(`Firebase client callable has no deployed export: ${name}`);
+}
+const allAssetJs = fs.readdirSync(path.join(root,'assets')).filter(name => name.endsWith('.js')).map(name => read(`assets/${name}`)).join('\n');
+const mfCloudUses = [...new Set([...allAssetJs.matchAll(/MFCloud\??\.(\w+)/g)].map(match => match[1]))];
+for (const name of mfCloudUses) {
+  const implemented = firebaseSyncSource.includes(`${name}:`) || firebaseSyncSource.includes(`function ${name}(`) || firebaseSyncSource.includes(`,${name},`) || firebaseSyncSource.includes(`{${name},`);
+  if (!implemented) fail(`MFCloud UI method/property is missing: ${name}`);
+}
 if (!functionsSource.includes('exports.scheduledPlatformBackup = onSchedule')) fail('Scheduled daily backup export is missing');
+if (!functionsSource.includes('exports.notifyStaffOnBookingCreated = onDocumentCreated')) fail('Asynchronous booking notification trigger is missing');
+if (!functionsSource.includes("db.collection('_booking_requests')") || !functionsSource.includes('requestId')) fail('Idempotent booking request protection is missing');
+if (!functionsSource.includes("db.collection('_homework_upload_tokens')") || !read('storage.rules').includes('_homework_upload_tokens')) fail('One-time homework upload authorization is missing');
 if (/questions:\s*questions\.map\(q\s*=>\s*\(\{[^}]*answer/s.test(functionsSource)) fail('startExam response appears to expose answers');
 if (!functionsSource.includes("backupFormatVersion: 2") || !functionsSource.includes("createPlatformBackup('pre-restore'")) {
   fail('Safe backup restore protection is incomplete');
@@ -98,11 +129,33 @@ if (!failures.some(x => x.startsWith('Missing callable') || x.includes('Schedule
   ok('Secure callable, exam, backup, and safe-delete checks passed');
 }
 
+const adminSourceCode = read('assets/admin.js');
+const appSourceCode = read('assets/app.js');
+const fixesSourceCode = read('assets/v56-fixes.js');
+if (!adminSourceCode.includes("loadSiteData({fast:true})") || !adminSourceCode.includes('hydrateAdminRecords')) fail('Staged admin loading is missing');
+if (!appSourceCode.includes('staffCacheOnly') || !appSourceCode.includes('if(isStaffWorkspace())return;')) fail('Compact staff browser cache protection is missing');
+if (!fixesSourceCode.includes('showMoreAdminStudents') || !fixesSourceCode.includes('slice(0,adminStudentVisible)')) fail('Paginated student rendering is missing');
+if (!appSourceCode.includes('window.Html5Qrcode') || !read('student.html').includes('html5-qrcode-2.3.8.min.js')) fail('Cross-browser student QR scanner fallback is missing');
+for (const page of ['student.html','parent.html','teacher-login.html']) {
+  if (!read(page).includes('assets/vendor/html5-qrcode-2.3.8.min.js')) fail(`Local QR scanner bundle is missing from ${page}`);
+}
+if (!read('teacher-login.html').includes('assets/vendor/xlsx-0.18.5.full.min.js')) fail('Local Excel bundle is missing from the teacher page');
+if (/unpkg\.com\/html5-qrcode|cdn\.jsdelivr\.net\/npm\/xlsx/.test([read('student.html'),read('parent.html'),read('teacher-login.html')].join('\n'))) fail('Tracking-sensitive QR or Excel CDN dependency is still present');
+if (!fs.existsSync(path.join(root,'assets/vendor/html5-qrcode-2.3.8.min.js')) || !fs.existsSync(path.join(root,'assets/vendor/xlsx-0.18.5.full.min.js'))) fail('Vendored QR or Excel file is missing');
+if (!adminSourceCode.includes("toggleAttribute('inert',shouldHide)") || !adminSourceCode.includes('adminDrawerReturnFocus')) fail('Mobile admin drawer focus isolation is incomplete');
+if (!appSourceCode.includes('printParentReport') || !read('assets/v56.css').includes('printing-parent-report')) fail('Parent PDF print isolation fix is missing');
+if (!appSourceCode.includes('recitationPct') || !functionsSource.includes('recitationPct')) fail('Recitation/homework ranking linkage is missing');
+if (!read('assets/firebase-sync.js').includes('recordClassProgressDirect') || !adminSourceCode.includes('classProgressActionPending')) fail('Resilient class progress saving is missing');
+if (!read('assets/firebase-sync.js').includes('deleteStudentSafelyDirect') || !adminSourceCode.includes('studentDeletionPending')) fail('Safe direct student deletion fallback is missing');
+if (!appSourceCode.includes('formatTime12') || !adminSourceCode.includes('formatTime12')) fail('12-hour display formatting is missing');
+if (!failures.some(x => x.includes('admin loading') || x.includes('staff browser cache') || x.includes('student rendering'))) ok('Admin performance safeguards passed');
+
 const rules = read('firestore.rules');
 if (!rules.includes('match /exam_sessions/{id}') || !rules.includes('allow read, write: if false;')) fail('Exam session rules are not closed');
 if (!rules.includes('match /bookings/{bookingCode}') || !rules.includes('allow create: if false;')) fail('Public booking direct creation is not closed');
 if (!rules.includes('match /reviews/{reviewId}') || !rules.includes('allow create: if false;')) fail('Public review direct creation is not closed');
-if (!rules.includes('match /homework_submissions/{id}') || !rules.includes('allow create: if false;')) fail('Homework metadata creation is not restricted to Cloud Functions');
+if (!rules.includes('match /homework_submissions/{id}') || !rules.includes("request.resource.data.method == 'teacher_class_check'") || !rules.includes('validCode(request.resource.data.studentCode)')) fail('Homework class-check creation is not narrowly restricted to signed-in staff');
+if (!rules.includes('match /student_attempts/{studentCode}') || !rules.includes('allow create, update, delete: if isTeacher();')) fail('Safe student attempt correction, migration, and deletion rules are incomplete');
 if (!rules.includes('request.resource.data.parentCode == resource.data.parentCode')) fail('Assistant code immutability rule is missing');
 if (!failures.some(x => x.includes('rules are not') || x.includes('direct creation') || x.includes('metadata creation') || x.includes('immutability'))) {
   ok('Firestore security and assistant-permission checks passed');
@@ -116,9 +169,21 @@ if (!/mf-science-v\d+-production/.test(sw) || !sw.includes('/assets/v53-upgrades
 const upgrade = read('assets/v53-upgrades.js');
 if (!upgrade.includes('beforeinstallprompt') || !upgrade.includes('إضافة إلى الشاشة الرئيسية') || !upgrade.includes('navigator.standalone')) fail('Mobile install handling is incomplete');
 if (!read('assets/app.js').includes('renderBookingScheduleOptions') || !read('index.html').includes('bookingScheduleId')) fail('Booking schedule linkage is incomplete');
+if (/24\/7/.test(read('index.html')) || /24\/7/.test(read('assets/app.js'))) fail('Ambiguous 24/7 student portal label is still present');
+if (!read('assets/app.js').includes('leaderboard-name-line') || !read('assets/v56.css').includes('.leaderboard-avatar')) fail('Improved mobile leaderboard identity layout is missing');
+if (!functionsSource.includes('leaderboardStateRef') || !functionsSource.includes('stateVersion') || !functionsSource.includes('currentMonthRows')) fail('Immediate monthly leaderboard cache invalidation is missing');
+if (!functionsSource.includes("rateLimit('public-leaderboard-ip', requestIp(request)") || functionsSource.includes("rateLimitPublic('public-leaderboard', 'all'")) fail('Public leaderboard still has a shared global rate limit');
+const attendanceRecitationHomeworkOnlyScore = Math.round(100 * .30 + 0 * .40 + 100 * .15 + 100 * .15);
+if (attendanceRecitationHomeworkOnlyScore !== 60 || !functionsSource.includes(".filter(x=>x.name&&x.activity>0)")) fail('Active student without an exam grade would not enter the monthly leaderboard');
+if (!read('assets/firebase-sync.js').includes("markLeaderboardDirty('attendance')") || !read('assets/firebase-sync.js').includes('FieldValue.increment(1)')) fail('Staff activity does not invalidate the public leaderboard');
+if (!rules.includes('match /_system/leaderboard') || !rules.includes('allow create, update: if isStaff();')) fail('Leaderboard invalidation marker rules are missing');
+if (!read('index.html').includes('refreshLeaderboardButton') || !read('assets/app.js').includes('window.refreshPublicLeaderboard')) fail('Public leaderboard refresh control is missing');
 if (!read('index.html').includes('bookingGroupSearch') || !read('assets/app.js').includes('لا توجد مجموعة مطابقة للبحث')) fail('Booking group search is incomplete');
 if (!read('assets/firebase-sync.js').includes('saveGroup:async group') || !upgrade.includes('MFCloud?.saveGroup')) fail('Focused group persistence is incomplete');
-if (!read('functions/index.js').includes("db.collection('groups').doc(selectedScheduleId).get()") || !read('functions/index.js').includes("where('name', '==', requestedGroup)") || !read('functions/index.js').includes('scheduleStartTime')) fail('Secure booking schedule validation is incomplete');
+if (!read('functions/index.js').includes("db.collection('groups').doc(selectedScheduleId).get()") || !read('functions/index.js').includes("text(schedule.grade, 80) !== requestedGrade") || !read('functions/index.js').includes("text(schedule.name, 100) !== requestedGroup") || !read('functions/index.js').includes('scheduleStartTime')) fail('Secure booking schedule validation is incomplete');
+if (!read('assets/app.js').includes('normalizeText(item.grade)===selected') || read('index.html').includes('bookingStatusForm')) fail('Grade-only booking groups or booking-status removal is incomplete');
+if (!read('service-worker.js').includes('caches.match(url.pathname,{ignoreSearch:true})') || !read('assets/app.js').includes("localDevelopment=['localhost','127.0.0.1','0.0.0.0']")) fail('Portal navigation/offline fallback safeguards are incomplete');
+if (!read('assets/admin.js').includes('bookingActionPending') || read('assets/admin.js').includes("showIssuedCodes(student,'تم قبول الحجز وتسجيل الطالب')")) fail('Instant repeated booking approval safeguards are incomplete');
 if (!read('functions/index.js').includes("invoker: 'public'")) fail('Callable browser/CORS invoker configuration is missing');
 if (read('assets/app.js').includes('رقم ولي الأمر لازم يكون مختلف') || read('functions/index.js').includes('studentPhone === parentPhone')) fail('Same-number parent/student booking is still blocked');
 if (!read('assets/app.js').includes('toEnglishDigits') || !read('functions/index.js').includes('normalizeDigits')) fail('Arabic and English digit normalization is incomplete');

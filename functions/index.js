@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const admin = require('firebase-admin');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2/options');
 
@@ -82,6 +83,18 @@ async function uniqueNumericCode(collection, length = 8) {
     if (!snap.exists) return code;
   }
   throw new HttpsError('resource-exhausted', 'تعذر إنشاء كود رقمي فريد، حاول مرة أخرى.');
+}
+
+async function uniqueUnifiedAccessCode(length = 8) {
+  for (let i = 0; i < 12; i += 1) {
+    const code = randomNumericCode(length);
+    // Every current booking and approved account owns a students/{code}
+    // document. One indexed lookup is enough; atomic create() writes below
+    // remain the final collision guard under heavy concurrent registration.
+    const studentRecord = await db.collection('students').doc(code).get();
+    if (!studentRecord.exists) return code;
+  }
+  throw new HttpsError('resource-exhausted', 'تعذر إنشاء كود موحد فريد، حاول مرة أخرى.');
 }
 
 async function uniqueCode(collection, prefix) {
@@ -169,6 +182,14 @@ exports.registerTeacherPushToken = onCall(CALLABLE_OPTIONS, async request => {
   const tokenId = hash(token).slice(0, 48);
   await db.collection('staff_push_tokens').doc(tokenId).set({ token, uid: staff.uid, role: staff.role || '', active: true, userAgent: text(request.data?.userAgent, 250), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return { registered: true };
+});
+
+// Push delivery runs independently from the public booking request. The
+// student sees the success screen as soon as Firestore commits, even if FCM is
+// temporarily slow or unavailable.
+exports.notifyStaffOnBookingCreated = onDocumentCreated({ document: 'bookings/{bookingCode}', region: 'europe-west1', memory: '256MiB' }, async event => {
+  const booking = event.data && event.data.data();
+  if (booking) await notifyStaffAboutBooking(booking);
 });
 
 function publicExamSession(sessionId, exam, questions, startedAtMs, expiresAtMs) {
@@ -350,24 +371,69 @@ exports.getPortalStudent = onCall(CALLABLE_OPTIONS, async request => {
   return portalResponse(found.data, attempts, records);
 });
 
+const leaderboardStateRef = db.collection('_system').doc('leaderboard');
+let leaderboardCache = { expiresAt: 0, version: -1, rows: [] };
+
+async function markLeaderboardDirty(reason = 'activity') {
+  try {
+    await leaderboardStateRef.set({
+      version: FieldValue.increment(1),
+      reason: text(reason, 60),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.warn('leaderboard-dirty-marker-failed', error?.message || error);
+  }
+}
+
+function cairoDateKey(value = new Date()) {
+  let date;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (value && typeof value.toDate === 'function') date = value.toDate();
+  else date = value instanceof Date ? value : new Date(value);
+  if (!date || Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function leaderboardRecordDate(row = {}) {
+  return cairoDateKey(row.date || row.submittedAt || row.createdAt || row.updatedAt || '');
+}
+
 exports.getPublicLeaderboard = onCall(CALLABLE_OPTIONS, async request => {
-  await rateLimitPublic('public-leaderboard', 'all', request, 30, 120, 60 * 1000);
-  const [studentsSnap, attendanceSnap, gradesSnap, homeworkSnap] = await Promise.all([
+  // The old shared identity "all" imposed one 30-request limit on the whole
+  // website. Limit per visitor IP instead so simultaneous students can load it.
+  await rateLimit('public-leaderboard-ip', requestIp(request), 60, 60 * 1000);
+  const stateSnap = await leaderboardStateRef.get().catch(() => null);
+  const stateVersion = stateSnap?.exists ? Number(stateSnap.data()?.version || 0) : 0;
+  if (leaderboardCache.expiresAt > Date.now() && leaderboardCache.version === stateVersion) return leaderboardCache.rows;
+  const [studentsSnap, attendanceSnap, gradesSnap, homeworkSnap, recitationSnap] = await Promise.all([
     db.collection('students').where('active', '==', true).limit(500).get(),
     db.collection('attendance').limit(2000).get(),
     db.collection('grades').limit(2000).get(),
-    db.collection('homework_submissions').limit(2000).get()
+    db.collection('homework_submissions').limit(2000).get(),
+    db.collection('recitations').limit(2000).get()
   ]);
   const grouped = snap => { const map = new Map(); snap.docs.forEach(doc => { const row=doc.data()||{},code=normalizeCode(row.studentCode); if(!code)return; if(!map.has(code))map.set(code,[]); map.get(code).push(row); }); return map; };
-  const attendance=grouped(attendanceSnap),grades=grouped(gradesSnap),homeworks=grouped(homeworkSnap);
+  const attendance=grouped(attendanceSnap),grades=grouped(gradesSnap),homeworks=grouped(homeworkSnap),recitations=grouped(recitationSnap);
+  const complete=row=>row.completed===true||row.approved===true||String(row.status||'').startsWith('تم');
+  const currentMonth=cairoDateKey(new Date()).slice(0,7);
+  const currentMonthRows=items=>(items||[]).filter(row=>leaderboardRecordDate(row).slice(0,7)===currentMonth);
+  const recordDate=leaderboardRecordDate;
   const rows=studentsSnap.docs.map(doc=>{
     const st=doc.data()||{},code=normalizeCode(st.studentCode||st.code||doc.id);
-    const att=attendance.get(code)||st.attendance||[],present=att.filter(x=>['present','حاضر','متأخر'].includes(x.status)).length,attendancePct=att.length?Math.round(present/att.length*100):0;
-    const gradeRows=(grades.get(code)||st.grades||[]).filter(x=>Number.isFinite(Number(x.score))),gradePct=gradeRows.length?Math.round(gradeRows.reduce((sum,x)=>sum+Number(x.score),0)/gradeRows.length):0;
-    const hw=homeworks.get(code)||st.homeworks||[],homeworkPct=hw.length?Math.round(hw.filter(x=>String(x.status||'').includes('تم')||x.approved===true).length/hw.length*100):0;
-    const score=Math.round(attendancePct*.45+gradePct*.45+homeworkPct*.10);
-    return {name:publicStudentName(st.studentName||st.name),grade:text(st.grade,50),score,attendancePct,gradePct,homeworkPct,activity:att.length+gradeRows.length+hw.length};
+    const att=currentMonthRows(attendance.get(code)||st.attendance||[]),present=att.filter(x=>['present','حاضر','متأخر'].includes(x.status)).length,attendancePct=att.length?Math.round(present/att.length*100):0;
+    const gradeRows=currentMonthRows(grades.get(code)||st.grades||[]).filter(x=>Number.isFinite(Number(x.score))),gradePct=gradeRows.length?Math.round(gradeRows.reduce((sum,x)=>sum+Number(x.score),0)/gradeRows.length):0;
+    const hw=currentMonthRows(homeworks.get(code)||st.homeworks||[]).filter(complete),rec=currentMonthRows(recitations.get(code)||st.recitations||[]).filter(complete);
+    const classDates=new Set(att.map(recordDate).filter(Boolean));hw.forEach(row=>{const date=recordDate(row);if(date)classDates.add(date);});rec.forEach(row=>{const date=recordDate(row);if(date)classDates.add(date);});
+    const sessions=classDates.size,completedDates=items=>new Set(items.map(recordDate).filter(Boolean)).size;
+    const homeworkPct=sessions?Math.min(100,Math.round(completedDates(hw)/sessions*100)):0,recitationPct=sessions?Math.min(100,Math.round(completedDates(rec)/sessions*100)):0;
+    const score=Math.round(attendancePct*.30+gradePct*.40+homeworkPct*.15+recitationPct*.15);
+    return {name:publicStudentName(st.studentName||st.name),grade:text(st.grade,50),score,attendancePct,gradePct,homeworkPct,recitationPct,activity:att.length+gradeRows.length+hw.length+rec.length};
   }).filter(x=>x.name&&x.activity>0).sort((a,b)=>b.score-a.score||b.attendancePct-a.attendancePct||b.gradePct-a.gradePct).slice(0,5);
+  leaderboardCache = { expiresAt: Date.now() + 5 * 60 * 1000, version: stateVersion, rows };
   return rows;
 });
 
@@ -380,16 +446,12 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
   if (digits(parentPhone).length < 10) throw new HttpsError('invalid-argument', 'اكتب رقم ولي أمر صحيحًا.');
 
   for (let attemptNo = 0; attemptNo < 8; attemptNo += 1) {
-    const studentCode = await uniqueNumericCode('student_portal', 8);
-    let parentCode = await uniqueNumericCode('parent_portal', 8);
-    while (parentCode === studentCode) parentCode = await uniqueNumericCode('parent_portal', 8);
+    const studentCode = await uniqueUnifiedAccessCode(8);
+    const parentCode = studentCode;
     const studentRef = db.collection('students').doc(cleanDocId(studentCode));
     const studentPortalRef = db.collection('student_portal').doc(cleanDocId(studentCode));
     const parentPortalRef = db.collection('parent_portal').doc(cleanDocId(parentCode));
     const paymentRef = db.collection('payments').doc(cleanDocId(studentCode));
-    const [studentExists, parentExists] = await Promise.all([studentPortalRef.get(), parentPortalRef.get()]);
-    if (studentExists.exists || parentExists.exists) continue;
-
     const student = {
       studentCode,
       code: studentCode,
@@ -447,6 +509,13 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
 
 exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   const body = request.data || {};
+  const rawRequestId = text(body.requestId, 80);
+  const requestId = /^[A-Za-z0-9_-]{12,80}$/.test(rawRequestId) ? rawRequestId : '';
+  const requestRef = requestId ? db.collection('_booking_requests').doc(cleanDocId(requestId)) : null;
+  if (requestRef) {
+    const previous = await requestRef.get();
+    if (previous.exists && previous.data().response) return previous.data().response;
+  }
   const identity = `${digits(body.parentPhone)}:${request.rawRequest.ip || ''}`;
   await rateLimitPublic('booking-v2', identity, request, 12, 60, 10 * 60 * 1000);
   const name = text(body.name, 80);
@@ -456,35 +525,20 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   if (studentPhone.length < 10 || parentPhone.length < 10) throw new HttpsError('invalid-argument', 'اكتب أرقام هاتف صحيحة.');
   const requestedGrade = text(body.grade, 80);
   const requestedGroup = text(body.group, 100);
-  const pendingAssignment = requestedGroup === 'تحديد المجموعة مع المدرس' && text(body.scheduleId, 100) === 'pending-assignment';
-  let selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
-  let scheduleSnap = selectedScheduleId ? await db.collection('groups').doc(selectedScheduleId).get() : null;
-
-  // Resolve a current Firestore group when the browser retained an older local id.
-  // The exact name, active flag and grade are still validated before booking.
-  if ((!scheduleSnap || !scheduleSnap.exists) && requestedGroup) {
-    const candidates = await db.collection('groups').where('name', '==', requestedGroup).limit(20).get();
-    const matching = candidates.docs.find(doc => {
-      const item = doc.data() || {};
-      return item.active !== false && (!item.grade || item.grade === 'كل الصفوف' || item.grade === requestedGrade);
-    });
-    if (matching) {
-      scheduleSnap = matching;
-      selectedScheduleId = matching.id;
-    }
-  }
-  if ((!scheduleSnap || !scheduleSnap.exists || scheduleSnap.data().active === false) && !pendingAssignment) {
+  const selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
+  if (!selectedScheduleId) throw new HttpsError('failed-precondition', 'اختر موعدًا من مواعيد الصف المتاحة.');
+  const scheduleSnap = await db.collection('groups').doc(selectedScheduleId).get();
+  if (!scheduleSnap.exists || scheduleSnap.data().active === false) {
     throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
   }
-  const schedule = pendingAssignment ? { name: 'تحديد المجموعة مع المدرس', days: '', startTime: '', endTime: '', grade: requestedGrade, active: true } : scheduleSnap.data();
-  if (schedule.grade && schedule.grade !== 'كل الصفوف' && schedule.grade !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
+  const schedule = scheduleSnap.data();
+  if (text(schedule.grade, 80) !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
+  if (text(schedule.name, 100) !== requestedGroup) throw new HttpsError('failed-precondition', 'المجموعة المختارة تغيّرت. حدّث الصفحة واخترها من جديد.');
   // All codes shown after booking are digits only and can be typed with Arabic
   // or English numerals. They are issued immediately and never change later.
-  const [code, studentCode, parentCode] = await Promise.all([
-    uniqueNumericCode('bookings', 8),
-    uniqueNumericCode('student_portal', 8),
-    uniqueNumericCode('parent_portal', 8)
-  ]);
+  const code = await uniqueUnifiedAccessCode(8);
+  const studentCode = code;
+  const parentCode = code;
   const payload = {
     id: code,
     code,
@@ -527,8 +581,8 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     updatedAt: FieldValue.serverTimestamp()
   };
   const batch = db.batch();
-  batch.set(db.collection('bookings').doc(cleanDocId(code)), payload);
-  batch.set(db.collection('booking_status').doc(cleanDocId(code)), statusPayload);
+  batch.create(db.collection('bookings').doc(cleanDocId(code)), payload);
+  batch.create(db.collection('booking_status').doc(cleanDocId(code)), statusPayload);
   const provisionalStudent = {
     ...payload,
     bookingCode: code,
@@ -542,12 +596,24 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     approvalStatus: 'قيد التسجيل'
   };
   const provisionalPortal = portalResponse(provisionalStudent, []);
-  batch.set(db.collection('students').doc(studentCode), provisionalStudent);
-  batch.set(db.collection('student_portal').doc(studentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
-  batch.set(db.collection('parent_portal').doc(parentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
-  await batch.commit();
-  await notifyStaffAboutBooking(payload).catch(error => console.error('booking-push-failed', error));
-  return { code, bookingCode: code, studentCode, parentCode, status: payload.status };
+  batch.create(db.collection('students').doc(studentCode), provisionalStudent);
+  batch.create(db.collection('student_portal').doc(studentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
+  batch.create(db.collection('parent_portal').doc(parentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
+  const response = { code, bookingCode: code, studentCode, parentCode, status: payload.status };
+  if (requestRef) batch.create(requestRef, { requestId, response, createdAt: FieldValue.serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000) });
+  try {
+    await batch.commit();
+  } catch (error) {
+    // A retried browser request can race the original request. The first batch
+    // wins; the retry returns the exact same codes instead of creating a second
+    // booking or showing a false failure.
+    if (requestRef) {
+      const previous = await requestRef.get().catch(() => null);
+      if (previous?.exists && previous.data().response) return previous.data().response;
+    }
+    throw error;
+  }
+  return response;
 });
 
 exports.approveBooking = onCall(CALLABLE_OPTIONS, async request => {
@@ -557,25 +623,29 @@ exports.approveBooking = onCall(CALLABLE_OPTIONS, async request => {
 
   // Candidates also let legacy bookings be approved instead of forcing the
   // teacher to delete and recreate them. Existing V55 codes are preserved.
-  const [fallbackStudentCode, fallbackParentCode] = await Promise.all([
-    uniqueNumericCode('student_portal', 8),
-    uniqueNumericCode('parent_portal', 8)
-  ]);
+  // Current bookings already use their numeric booking code as the unified
+  // access code. Avoid five unnecessary uniqueness reads on every approval;
+  // only old alphanumeric bookings need a fresh fallback code.
+  const fallbackStudentCode = /^\d{6,12}$/.test(bookingCode) ? bookingCode : await uniqueUnifiedAccessCode(8);
 
   const bookingRef = db.collection('bookings').doc(cleanDocId(bookingCode));
   const statusRef = db.collection('booking_status').doc(cleanDocId(bookingCode));
   return db.runTransaction(async tx => {
-    const [bookingSnap, statusSnap] = await Promise.all([tx.get(bookingRef), tx.get(statusRef)]);
-    const status = statusSnap.exists ? statusSnap.data() : {};
+    // The normal path needs one read only. booking_status is consulted only
+    // when the teacher taps an already-approved request again.
+    const bookingSnap = await tx.get(bookingRef);
     if (!bookingSnap.exists) {
+      const statusSnap = await tx.get(statusRef);
+      const status = statusSnap.exists ? statusSnap.data() : {};
       if (String(status.status || '').includes('القبول')) return { ...status, bookingCode, code: status.studentCode, alreadyApproved: true };
       throw new HttpsError('not-found', 'الحجز غير موجود أو تم التعامل معه من قبل.');
     }
+    const status = {};
     const booking = bookingSnap.data() || {};
     const existingStudentCode = text(booking.studentCode || status.studentCode, 40);
-    const existingParentCode = text(booking.parentCode || status.parentCode, 40);
+    const oldParentCode = text(booking.parentCode || status.parentCode, 40);
     const studentCode = /^\d{6,12}$/.test(existingStudentCode) ? existingStudentCode : fallbackStudentCode;
-    const parentCode = /^\d{6,12}$/.test(existingParentCode) ? existingParentCode : fallbackParentCode;
+    const parentCode = studentCode;
     const name = text(booking.studentName || booking.name, 100);
     const student = {
       ...booking,
@@ -597,6 +667,7 @@ exports.approveBooking = onCall(CALLABLE_OPTIONS, async request => {
     tx.set(db.collection('students').doc(studentCode), student, { merge: true });
     tx.set(db.collection('student_portal').doc(studentCode), { ...portal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(db.collection('parent_portal').doc(parentCode), { ...portal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    if (oldParentCode && oldParentCode !== parentCode) tx.delete(db.collection('parent_portal').doc(cleanDocId(oldParentCode)));
     tx.set(db.collection('payments').doc(studentCode), { studentCode, studentName: name, grade: student.grade, group: student.group, academicYear: student.academicYear, term: student.term, paid: false, paymentDate: '', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(statusRef, { ...status, code: bookingCode, name, studentName: name, studentCode, parentCode, status: 'تم القبول والتسجيل كطالب', acceptedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.delete(bookingRef);
@@ -672,6 +743,51 @@ exports.createReview = onCall(CALLABLE_OPTIONS, async request => {
     createdAt: FieldValue.serverTimestamp()
   });
   return { ok: true };
+});
+
+exports.recordClassProgress = onCall(CALLABLE_OPTIONS, async request => {
+  const staff = await requireStaff(request);
+  const body = request.data || {};
+  const type = body.type === 'recitation' ? 'recitation' : (body.type === 'homework' ? 'homework' : '');
+  const studentCode = normalizeCode(body.studentCode);
+  const date = text(body.date, 10);
+  const completed = body.completed !== false;
+  if (!type || !validLegacyOrStrongCode(studentCode) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new HttpsError('invalid-argument', 'بيانات متابعة الحصة غير مكتملة.');
+  }
+  const studentSnap = await db.collection('students').doc(cleanDocId(studentCode)).get();
+  if (!studentSnap.exists || studentSnap.data().active === false) throw new HttpsError('not-found', 'الطالب غير موجود أو غير نشط.');
+  const student = studentSnap.data() || {};
+  const collection = type === 'recitation' ? 'recitations' : 'homework_submissions';
+  const id = cleanDocId(`${studentCode}_${date}_class`);
+  const ref = db.collection(collection).doc(id);
+  if (!completed) {
+    await ref.delete().catch(() => {});
+    await markLeaderboardDirty(`${type}-removed`);
+    return { id, type, studentCode, date, completed: false, removed: true };
+  }
+  const payload = {
+    id,
+    type,
+    studentCode,
+    studentName: text(student.studentName || student.name, 100),
+    grade: text(student.grade, 80),
+    group: text(student.group, 100),
+    academicYear: text(student.academicYear, 20),
+    term: text(student.term, 40),
+    date,
+    time: text(body.time, 30),
+    title: type === 'recitation' ? 'تسميع الحصة' : 'واجب الحصة',
+    status: type === 'recitation' ? 'تم التسميع' : 'تم عمل الواجب',
+    completed: true,
+    approved: true,
+    method: 'teacher_class_check',
+    checkedBy: staff.email || staff.uid,
+    updatedAt: FieldValue.serverTimestamp()
+  };
+  await ref.set(payload, { merge: true });
+  await markLeaderboardDirty(type);
+  return { ...payload, updatedAt: new Date().toISOString() };
 });
 
 function examMatchesStudent(exam, student) {
@@ -937,27 +1053,64 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
   return committedResult;
 });
 
+exports.prepareHomeworkUpload = onCall(CALLABLE_OPTIONS, async request => {
+  const body = request.data || {};
+  const studentCode = normalizeCode(body.studentCode);
+  await rateLimitPublic('homework-prepare', studentCode, request, 5, 15, 60 * 60 * 1000);
+  await getStudentPortalByCode(studentCode);
+  const fileName = text(body.fileName, 180).replace(/[\\/#?\[\]]/g, '-');
+  const contentType = text(body.contentType, 100);
+  const size = Number(body.size || 0);
+  if (!fileName || !Number.isFinite(size) || size <= 0 || size > 10 * 1024 * 1024) throw new HttpsError('invalid-argument', 'بيانات ملف الواجب غير صالحة.');
+  if (!(['image/jpeg','image/png','image/webp','application/pdf'].includes(contentType))) throw new HttpsError('invalid-argument', 'مسموح بالصور وملفات PDF فقط.');
+  const uploadId = crypto.randomBytes(18).toString('hex');
+  const safeName = `${Date.now()}-${fileName}`.slice(0, 220);
+  await db.collection('_homework_upload_tokens').doc(uploadId).set({
+    studentCode,
+    safeName,
+    contentType,
+    size,
+    expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+    createdAt: FieldValue.serverTimestamp()
+  });
+  return { uploadId, safeName, path: `homework/${cleanDocId(studentCode)}/${uploadId}/${safeName}` };
+});
+
 exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
   const body = request.data || {};
   const studentCode = normalizeCode(body.studentCode);
   await rateLimitPublic('homework-submit', studentCode, request, 5, 15, 60 * 60 * 1000);
   const found = await getStudentPortalByCode(studentCode);
+  const uploadId = text(body.uploadId, 80);
+  const tokenRef = db.collection('_homework_upload_tokens').doc(cleanDocId(uploadId));
+  const tokenSnap = await tokenRef.get();
+  if (!tokenSnap.exists) throw new HttpsError('permission-denied', 'انتهت صلاحية رفع الملف. ابدأ الرفع من جديد.');
+  const token = tokenSnap.data() || {};
+  const expiresAt = token.expiresAt?.toMillis?.() || 0;
+  if (token.studentCode !== studentCode || expiresAt <= Date.now()) {
+    await tokenRef.delete().catch(() => {});
+    throw new HttpsError('permission-denied', 'انتهت صلاحية رفع الملف. ابدأ الرفع من جديد.');
+  }
   const filePath = text(body.path || body.filePath, 500);
-  const fileName = text(body.fileName, 180);
-  const fileUrl = text(body.url || body.fileUrl, 1500);
-  const contentType = text(body.contentType, 100);
-  const size = Number(body.size || 0);
-  if (!filePath.startsWith(`homework/${cleanDocId(studentCode)}/`)) {
+  const expectedPath = `homework/${cleanDocId(studentCode)}/${uploadId}/${token.safeName}`;
+  if (filePath !== expectedPath) {
     throw new HttpsError('permission-denied', 'مسار ملف الواجب غير صالح.');
   }
-  if (!fileName || !fileUrl || !Number.isFinite(size) || size <= 0 || size > 10 * 1024 * 1024) {
-    throw new HttpsError('invalid-argument', 'بيانات ملف الواجب غير صالحة.');
+  const bucket = admin.storage().bucket();
+  let metadata;
+  try{[metadata] = await bucket.file(filePath).getMetadata();}catch(error){throw new HttpsError('not-found', 'ملف الواجب لم يكتمل رفعه. حاول مرة أخرى.');}
+  const size = Number(metadata.size || 0),contentType = text(metadata.contentType, 100);
+  if (size !== Number(token.size) || contentType !== token.contentType) throw new HttpsError('permission-denied', 'بيانات الملف المرفوع لا تطابق طلب الرفع.');
+  let downloadToken = text(metadata.metadata?.firebaseStorageDownloadTokens?.split(',')?.[0], 200);
+  if (!downloadToken) {
+    downloadToken = crypto.randomUUID();
+    await bucket.file(filePath).setMetadata({ metadata: { ...(metadata.metadata || {}), firebaseStorageDownloadTokens: downloadToken } });
   }
-  if (!(['image/jpeg','image/png','image/webp','application/pdf'].includes(contentType))) {
-    throw new HttpsError('invalid-argument', 'مسموح بالصور وملفات PDF فقط.');
-  }
+  const fileUrl = downloadToken ? `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${encodeURIComponent(downloadToken)}` : '';
+  if (!fileUrl) throw new HttpsError('internal', 'تعذر تجهيز رابط ملف الواجب. حاول مرة أخرى.');
   const ref = db.collection('homework_submissions').doc();
-  await ref.set({
+  const batch = db.batch();
+  batch.set(ref, {
     id: ref.id,
     studentCode,
     studentName: text(found.data.studentName || found.data.name, 100),
@@ -965,17 +1118,21 @@ exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
     group: text(found.data.group, 100),
     academicYear: text(found.data.academicYear, 20),
     term: text(found.data.term, 40),
-    fileName,
+    fileName: text(body.fileName || token.safeName, 180),
     fileUrl,
     url: fileUrl,
     filePath,
     path: filePath,
     contentType,
     size,
-    status: 'تم الرفع',
+    status: 'بانتظار مراجعة المدرس',
+    completed: false,
+    approved: false,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
   });
+  batch.delete(tokenRef);
+  await batch.commit();
   return { id: ref.id, ok: true };
 });
 
@@ -1214,5 +1371,6 @@ exports.deleteStudentSafely = onCall({ region: 'europe-west1', timeoutSeconds: 1
   if (attemptsChildren) refs.push(...attemptsChildren.docs.map(doc => doc.ref));
   await commitDeleteRefs(refs);
   await db.collection('activityLog').add({ action: 'تم حذف طالب مع نسخة استرجاع', meta: { studentCode, archiveName }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
+  await markLeaderboardDirty('student-deleted');
   return { ok: true, archiveName };
 });
