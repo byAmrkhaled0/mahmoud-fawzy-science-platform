@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5614-production-mobile-speed";
+const CACHE_NAME = "mf-science-v56151-production-grade-leaderboards";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",

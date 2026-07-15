@@ -11,7 +11,7 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
-var MF_ASSET_VERSION = '56.14.0';
+var MF_ASSET_VERSION = '56.15.1';
 var mfLazyScriptPromises = Object.create(null);
 
 function loadLazyScript(key, source, readyCheck){
@@ -680,19 +680,30 @@ function renderBookingSuccess(b){
 }
 window.copyBookingCode=function(code){navigator.clipboard?.writeText(code); toast('تم نسخ الكود');};
 function renderHomeCounts(){const el=document.getElementById('liveCounts'); if(!el)return; el.innerHTML=`<div class="stat"><b>${GRADES.length}</b><small>صفوف دراسية</small></div><div class="stat"><b>متاحة</b><small>بوابة الطالب</small></div><div class="stat"><b>QR</b><small>حضور وامتحانات</small></div>`;}
-let publicLeaderboardState={rows:null,expiresAt:0,promise:null};
+let publicLeaderboardState={rows:null,expiresAt:0,promise:null,grade:''};
+let publicLeaderboardRenderId=0;
+function selectedLeaderboardGrade(){return document.getElementById('leaderboardGrade')?.value||GRADES[0];}
+function setupLeaderboardGradePicker(){
+  const select=document.getElementById('leaderboardGrade');if(!select)return;
+  const saved=sessionStorage.getItem('mf_leaderboard_grade');if(saved&&GRADES.includes(saved))select.value=saved;
+  select.addEventListener('change',()=>{sessionStorage.setItem('mf_leaderboard_grade',select.value);publicLeaderboardState={rows:null,expiresAt:0,promise:null,grade:select.value};renderPublicLeaderboard(true);});
+}
 async function renderPublicLeaderboard(force=false){
   const box=document.getElementById('publicLeaderboard');if(!box)return;
+  const selectedGrade=selectedLeaderboardGrade();
+  const renderId=++publicLeaderboardRenderId;
   box.innerHTML='<div class="skeleton" style="height:90px"></div>';
   let rows=[];
   try{
-    if(!force&&publicLeaderboardState.rows&&Date.now()<publicLeaderboardState.expiresAt)rows=publicLeaderboardState.rows;
+    if(!force&&publicLeaderboardState.grade===selectedGrade&&publicLeaderboardState.rows&&Date.now()<publicLeaderboardState.expiresAt)rows=publicLeaderboardState.rows;
     else{
-      if(!publicLeaderboardState.promise)publicLeaderboardState.promise=Promise.resolve(window.MFCloud?.getPublicLeaderboard?.()||[]).finally(()=>{publicLeaderboardState.promise=null;});
+      if(!publicLeaderboardState.promise)publicLeaderboardState.promise=Promise.resolve(window.MFCloud?.getPublicLeaderboard?.(selectedGrade)||[]).finally(()=>{publicLeaderboardState.promise=null;});
       rows=await publicLeaderboardState.promise||[];
-      publicLeaderboardState.rows=rows;publicLeaderboardState.expiresAt=Date.now()+5*60*1000;
+      publicLeaderboardState.rows=rows;publicLeaderboardState.grade=selectedGrade;publicLeaderboardState.expiresAt=Date.now()+5*60*1000;
     }
   }catch(_){rows=[];}
+  if(renderId!==publicLeaderboardRenderId||selectedGrade!==selectedLeaderboardGrade())return;
+  rows=(rows||[]).filter(row=>String(row.grade||'').trim()===selectedGrade);
   box.className='leaderboard-five';
   box.innerHTML=rows.length?rows.map((x,i)=>{
     const name=String(x.name||'طالب متميز').trim();
@@ -707,12 +718,12 @@ async function renderPublicLeaderboard(force=false){
       </div>
       <div class="leaderboard-score"><small>المجموع</small><b>${score}%</b></div>
     </article>`;
-  }).join(''):`<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="star"></span><h3>التنافس يبدأ مع أول نشاط</h3><p>سيظهر أفضل خمسة طلاب تلقائيًا بعد تسجيل الحضور والدرجات والتسميع والواجبات.</p></div>`;
+  }).join(''):`<div class="empty-state compact-empty-v29"><span class="iconbox" data-icon="star"></span><h3>لا يوجد ترتيب لصف ${esc(selectedGrade)} بعد</h3><p>سيظهر أفضل خمسة طلاب من هذا الصف تلقائيًا بعد تسجيل نشاطهم خلال الشهر الحالي.</p></div>`;
   hydrateIcons();
 }
 window.refreshPublicLeaderboard=async function(){
   const button=document.getElementById('refreshLeaderboardButton');
-  publicLeaderboardState={rows:null,expiresAt:0,promise:null};
+  publicLeaderboardState={rows:null,expiresAt:0,promise:null,grade:selectedLeaderboardGrade()};
   if(button){button.disabled=true;button.classList.add('is-loading');}
   try{await renderPublicLeaderboard(true);}
   finally{if(button){button.disabled=false;button.classList.remove('is-loading');}}
@@ -942,5 +953,5 @@ function setupPWAInstall(){
   window.addEventListener('appinstalled',()=>{button.hidden=true;toast('تم تثبيت المنصة على الهاتف');});
 }
 function setupClientErrorReporting(){window.addEventListener('error',event=>{window.MFCloud?.reportClientError?.({message:String(event.message||'خطأ JavaScript'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});window.addEventListener('unhandledrejection',event=>{window.MFCloud?.reportClientError?.({message:String(event.reason?.message||event.reason||'Promise rejection'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});}
-function init(){setupTheme(); setupActiveNavigation(); bindLocalizedDigits(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderUnifiedResourcesPage(); initFirebaseData();}
+function init(){setupTheme(); setupActiveNavigation(); bindLocalizedDigits(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); setupLeaderboardGradePicker(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderUnifiedResourcesPage(); initFirebaseData();}
 document.addEventListener('DOMContentLoaded',init);

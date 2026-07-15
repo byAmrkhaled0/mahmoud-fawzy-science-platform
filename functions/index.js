@@ -70,10 +70,9 @@ function randomNumericCode(length = 8) {
 }
 
 function publicStudentName(value) {
-  const parts = text(value, 80).split(/\s+/).filter(Boolean);
-  if (!parts.length) return '';
-  if (parts.length === 1) return parts[0];
-  return `${parts[0]} ${parts[1].charAt(0)}.`;
+  // The teacher requested the leaderboard to use the exact full student name
+  // saved on the platform instead of shortening the family name to an initial.
+  return text(value, 80).replace(/\s+/g, ' ').trim();
 }
 
 async function uniqueNumericCode(collection, length = 8) {
@@ -408,7 +407,9 @@ exports.getPublicLeaderboard = onCall(CALLABLE_OPTIONS, async request => {
   await rateLimit('public-leaderboard-ip', requestIp(request), 60, 60 * 1000);
   const stateSnap = await leaderboardStateRef.get().catch(() => null);
   const stateVersion = stateSnap?.exists ? Number(stateSnap.data()?.version || 0) : 0;
-  if (leaderboardCache.expiresAt > Date.now() && leaderboardCache.version === stateVersion) return leaderboardCache.rows;
+  const requestedGrade = text(request.data?.grade, 50);
+  const selectGradeLeaders = items => (items || []).filter(row => row.grade === requestedGrade).slice(0, 5);
+  if (leaderboardCache.expiresAt > Date.now() && leaderboardCache.version === stateVersion) return selectGradeLeaders(leaderboardCache.rows);
   const [studentsSnap, attendanceSnap, gradesSnap, homeworkSnap, recitationSnap] = await Promise.all([
     db.collection('students').where('active', '==', true).limit(500).get(),
     db.collection('attendance').limit(2000).get(),
@@ -432,9 +433,9 @@ exports.getPublicLeaderboard = onCall(CALLABLE_OPTIONS, async request => {
     const homeworkPct=sessions?Math.min(100,Math.round(completedDates(hw)/sessions*100)):0,recitationPct=sessions?Math.min(100,Math.round(completedDates(rec)/sessions*100)):0;
     const score=Math.round(attendancePct*.30+gradePct*.40+homeworkPct*.15+recitationPct*.15);
     return {name:publicStudentName(st.studentName||st.name),grade:text(st.grade,50),score,attendancePct,gradePct,homeworkPct,recitationPct,activity:att.length+gradeRows.length+hw.length+rec.length};
-  }).filter(x=>x.name&&x.activity>0).sort((a,b)=>b.score-a.score||b.attendancePct-a.attendancePct||b.gradePct-a.gradePct).slice(0,5);
+  }).filter(x=>x.name&&x.activity>0).sort((a,b)=>b.score-a.score||b.attendancePct-a.attendancePct||b.gradePct-a.gradePct);
   leaderboardCache = { expiresAt: Date.now() + 5 * 60 * 1000, version: stateVersion, rows };
-  return rows;
+  return selectGradeLeaders(rows);
 });
 
 exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {

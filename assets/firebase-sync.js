@@ -472,7 +472,7 @@
       },
       upsertAttendance,getAttendanceForDate,
       getStudentByCode:code=>{if(!calls.getPortalStudent)throw new Error('Secure student portal function is unavailable');return retryTransient(()=>calls.getPortalStudent({code:normalizeCode(code),mode:'student'}),1);},
-      getPublicLeaderboard:()=>calls.getPublicLeaderboard?calls.getPublicLeaderboard({}):Promise.resolve([]),
+      getPublicLeaderboard:grade=>calls.getPublicLeaderboard?calls.getPublicLeaderboard({grade:String(grade||'').trim()}):Promise.resolve([]),
       getParentStudent:code=>{if(!calls.getPortalStudent)throw new Error('Secure parent portal function is unavailable');return retryTransient(()=>calls.getPortalStudent({code:normalizeCode(code),mode:'parent'}),1);},
       uploadHomework:async(file,studentCode)=>{const normalized=normalizeCode(studentCode);if(!calls.prepareHomeworkUpload||!calls.registerHomeworkSubmission)throw new Error('Secure homework function is unavailable');const permit=await calls.prepareHomeworkUpload({studentCode:normalized,fileName:file.name,size:file.size,contentType:file.type});const uploaded=await upload(file,`homework/${cleanDocId(normalized)}/${permit.uploadId}`,permit.safeName,true);await calls.registerHomeworkSubmission({studentCode:normalized,uploadId:permit.uploadId,...uploaded,fileName:file.name});return uploaded;},
       uploadAttachment:(file,folder)=>upload(file,folder||'teacher-uploads'),logActivity,
