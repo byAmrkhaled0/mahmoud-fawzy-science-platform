@@ -295,6 +295,7 @@ function portalResponse(data, attempts, records = {}) {
     grades: Array.isArray(records.grades) ? records.grades.slice(-120) : (Array.isArray(data.grades) ? data.grades.slice(-120) : []),
     homeworks: Array.isArray(records.homeworks) ? records.homeworks.slice(-120) : (Array.isArray(data.homeworks) ? data.homeworks.slice(-120) : []),
     recitations: Array.isArray(records.recitations) ? records.recitations.slice(-120) : (Array.isArray(data.recitations) ? data.recitations.slice(-120) : []),
+    assignments: Array.isArray(records.assignments) ? records.assignments.slice(-60) : [],
     examAttempts: Array.isArray(attempts) ? attempts.slice(-120) : []
   };
 }
@@ -347,17 +348,25 @@ async function attemptSummaries(studentCode) {
   }));
 }
 
-async function studentRecords(studentCode) {
+async function studentRecords(studentCode, student = {}) {
   const normalized = normalizeCode(studentCode);
   const load = async collection => {
     const snap = await db.collection(collection).where('studentCode', '==', normalized).limit(250).get().catch(() => null);
     return snap ? snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
   };
-  const [attendance, grades, homeworks, recitations] = await Promise.all([
-    load('attendance'), load('grades'), load('homework_submissions'), load('recitations')
+  const [attendance, grades, homeworks, recitations, assignmentSnap] = await Promise.all([
+    load('attendance'), load('grades'), load('homework_submissions'), load('recitations'),
+    db.collection('assignments').where('active','==',true).limit(250).get().catch(()=>null)
   ]);
   const byDate = rows => rows.sort((a, b) => String(a.date || a.submittedAt || a.createdAt || '').localeCompare(String(b.date || b.submittedAt || b.createdAt || '')));
-  return { attendance: byDate(attendance), grades: byDate(grades), homeworks: byDate(homeworks), recitations: byDate(recitations) };
+  const assignments=assignmentSnap?assignmentSnap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(item=>{
+    const grade=text(item.grade,80),group=text(item.group,100),term=text(item.term,40),year=text(item.academicYear,20);
+    return (!grade||grade==='كل الصفوف'||grade===student.grade)
+      &&(!group||group==='كل المجموعات'||group===student.group)
+      &&(!term||term==='كل الترمات'||term===student.term)
+      &&(!year||year===student.academicYear);
+  }):[];
+  return { attendance: byDate(attendance), grades: byDate(grades), homeworks: byDate(homeworks), recitations: byDate(recitations), assignments };
 }
 
 exports.getPortalStudent = onCall(CALLABLE_OPTIONS, async request => {
@@ -366,7 +375,7 @@ exports.getPortalStudent = onCall(CALLABLE_OPTIONS, async request => {
   await rateLimitPublic(`portal-${mode}`, code, request, 8, 35, 60 * 1000);
   const found = mode === 'parent' ? await getParentPortalByCode(code) : await getStudentPortalByCode(code);
   const studentCode = found.data.studentCode || found.data.code;
-  const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
+  const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode,found.data)]);
   return portalResponse(found.data, attempts, records);
 });
 
@@ -1061,6 +1070,7 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
 exports.prepareHomeworkUpload = onCall(CALLABLE_OPTIONS, async request => {
   const body = request.data || {};
   const studentCode = normalizeCode(body.studentCode);
+  const assignmentId = text(body.assignmentId, 100);
   await rateLimitPublic('homework-prepare', studentCode, request, 5, 15, 60 * 60 * 1000);
   await getStudentPortalByCode(studentCode);
   const fileName = text(body.fileName, 180).replace(/[\\/#?\[\]]/g, '-');
@@ -1072,6 +1082,7 @@ exports.prepareHomeworkUpload = onCall(CALLABLE_OPTIONS, async request => {
   const safeName = `${Date.now()}-${fileName}`.slice(0, 220);
   await db.collection('_homework_upload_tokens').doc(uploadId).set({
     studentCode,
+    assignmentId,
     safeName,
     contentType,
     size,
@@ -1086,13 +1097,14 @@ exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
   const studentCode = normalizeCode(body.studentCode);
   await rateLimitPublic('homework-submit', studentCode, request, 5, 15, 60 * 60 * 1000);
   const found = await getStudentPortalByCode(studentCode);
+  const assignmentId = text(body.assignmentId, 100);
   const uploadId = text(body.uploadId, 80);
   const tokenRef = db.collection('_homework_upload_tokens').doc(cleanDocId(uploadId));
   const tokenSnap = await tokenRef.get();
   if (!tokenSnap.exists) throw new HttpsError('permission-denied', 'انتهت صلاحية رفع الملف. ابدأ الرفع من جديد.');
   const token = tokenSnap.data() || {};
   const expiresAt = token.expiresAt?.toMillis?.() || 0;
-  if (token.studentCode !== studentCode || expiresAt <= Date.now()) {
+  if (token.studentCode !== studentCode || text(token.assignmentId,100) !== assignmentId || expiresAt <= Date.now()) {
     await tokenRef.delete().catch(() => {});
     throw new HttpsError('permission-denied', 'انتهت صلاحية رفع الملف. ابدأ الرفع من جديد.');
   }
@@ -1114,6 +1126,12 @@ exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
   const fileUrl = downloadToken ? `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${encodeURIComponent(downloadToken)}` : '';
   if (!fileUrl) throw new HttpsError('internal', 'تعذر تجهيز رابط ملف الواجب. حاول مرة أخرى.');
   const ref = db.collection('homework_submissions').doc();
+  let assignment={};
+  if(assignmentId){
+    const assignmentSnap=await db.collection('assignments').doc(cleanDocId(assignmentId)).get();
+    if(!assignmentSnap.exists||assignmentSnap.data().active===false)throw new HttpsError('failed-precondition','الواجب غير متاح حاليًا.');
+    assignment=assignmentSnap.data()||{};
+  }
   const batch = db.batch();
   batch.set(ref, {
     id: ref.id,
@@ -1123,6 +1141,8 @@ exports.registerHomeworkSubmission = onCall(CALLABLE_OPTIONS, async request => {
     group: text(found.data.group, 100),
     academicYear: text(found.data.academicYear, 20),
     term: text(found.data.term, 40),
+    assignmentId,
+    title: text(assignment.title || body.title || 'واجب', 200),
     fileName: text(body.fileName || token.safeName, 180),
     fileUrl,
     url: fileUrl,

@@ -11,7 +11,7 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
-var MF_ASSET_VERSION = '56.15.1';
+var MF_ASSET_VERSION = '57.0.0';
 var mfLazyScriptPromises = Object.create(null);
 
 function loadLazyScript(key, source, readyCheck){
@@ -36,7 +36,8 @@ function loadLazyScript(key, source, readyCheck){
 
 window.MFAssets={
   loadQrScanner:()=>loadLazyScript('qr-scanner','assets/vendor/html5-qrcode-2.3.8.min.js',()=>typeof window.Html5Qrcode==='function'),
-  loadSpreadsheet:()=>loadLazyScript('spreadsheet','assets/vendor/xlsx-0.18.5.full.min.js',()=>typeof window.XLSX!=='undefined')
+  loadSpreadsheet:()=>loadLazyScript('spreadsheet','assets/vendor/xlsx-0.18.5.full.min.js',()=>typeof window.XLSX!=='undefined'),
+  loadPdf:()=>loadLazyScript('jspdf','assets/vendor/jspdf.umd.min.js',()=>Boolean(window.jspdf?.jsPDF))
 };
 var icons = {
   atom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="2"></circle><path d="M12 2c3 3.8 5 7.1 5 10s-2 6.2-5 10c-3-3.8-5-7.1-5-10s2-6.2 5-10Z"></path><path d="M2 12c3.8-3 7.1-5 10-5s6.2 2 10 5c-3.8 3-7.1 5-10 5S5.8 15 2 12Z"></path></svg>',
@@ -182,20 +183,21 @@ function fillSelects(){
   const month=document.getElementById('bookingMonth'); if(month) month.innerHTML=MONTHS.map(m=>`<option>${esc(m)}</option>`).join('');
   if(month){const currentMonth=MONTHS[new Date().getMonth()];if(currentMonth)month.value=currentMonth;}
   if(grade&&!grade.dataset.scheduleBound){grade.dataset.scheduleBound='true';grade.addEventListener('change',()=>{const search=document.getElementById('bookingGroupSearch');if(search)search.value='';renderBookingScheduleOptions();});}
+  const term=document.getElementById('bookingTerm');if(term&&!term.dataset.scheduleBound){term.dataset.scheduleBound='true';term.addEventListener('change',renderBookingScheduleOptions);}
   const groupSearch=document.getElementById('bookingGroupSearch');if(groupSearch&&!groupSearch.dataset.bound){groupSearch.dataset.bound='true';groupSearch.addEventListener('input',renderBookingScheduleOptions);}
   renderBookingScheduleOptions();
 }
 function activeSchedulesForGrade(grade){
-  const selected=normalizeText(grade);
-  return (appData.groups||[]).filter(item=>item&&item.active!==false&&normalizeText(item.grade)===selected);
+  const selected=normalizeText(grade),term=normalizeText(document.getElementById('bookingTerm')?.value||'');
+  return (appData.groups||[]).filter(item=>item&&item.active!==false&&normalizeText(item.grade)===selected&&(!item.term||item.term==='كل الترمات'||normalizeText(item.term)===term));
 }
-function scheduleOptionLabel(item){const time=[item.startTime,item.endTime].filter(Boolean).map(formatTime12).join(' - ');return [item.name,item.days,time].filter(Boolean).join(' — ');}
+function scheduleOptionLabel(item){const time=[item.startTime,item.endTime].filter(Boolean).map(formatTime12).join(' - ');return [item.name,item.days,time,item.note].filter(Boolean).join(' — ');}
 function renderBookingScheduleOptions(){
   const select=document.getElementById('bookingGroup');if(!select)return;
   const grade=document.getElementById('bookingGrade')?.value||GRADES[0];
   const query=normalizeText(document.getElementById('bookingGroupSearch')?.value||'');
   const allSchedules=activeSchedulesForGrade(grade);
-  const schedules=query?allSchedules.filter(item=>normalizeText([item.name,item.days,item.startTime,item.endTime].filter(Boolean).join(' ')).includes(query)):allSchedules;
+  const schedules=query?allSchedules.filter(item=>normalizeText([item.name,item.days,item.startTime,item.endTime,item.note,item.term,item.academicYear].filter(Boolean).join(' ')).includes(query)):allSchedules;
   const currentId=document.getElementById('bookingScheduleId')?.value||'';
   const scheduleIdInput=document.getElementById('bookingScheduleId');
   const submit=document.querySelector('#bookingForm button[type="submit"]');
@@ -337,6 +339,7 @@ function studentProfileHTML(raw, isParent=false){
   const grades=[...(st.grades||[]),...attempts].slice().reverse();
   const attendance=getAttendanceRows(st);
   const homeworks=(st.homeworks||[]).slice().reverse();
+  const assignments=(st.assignments||[]).filter(item=>item.active!==false);
   const recitations=(st.recitations||[]).slice().reverse();
   const initials=String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('');
   const gradeCards=grades.length?grades.slice(0,12).map(g=>{
@@ -344,7 +347,9 @@ function studentProfileHTML(raw, isParent=false){
     return `<article class="student-record-card grade-record-card"><div><span class="record-eyebrow">${esc(formatPortalDate(g.date||g.submittedAt))}</span><h4>${esc(g.exam||g.examTitle||'امتحان')}</h4><small>${hasScore?esc(scoreLabel(g.score)):'سيظهر التقييم بعد تصحيح المدرس'}</small></div><strong class="score-pill ${hasScore?scoreClass(g.score):'warn'}">${hasScore?esc(g.score)+'%':'قيد التصحيح'}</strong></article>`;
   }).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد درجات بعد</h3><p>ستظهر نتائج الامتحانات هنا فور تسجيلها.</p></div>';
   const attendanceCards=attendance.length?attendance.slice(0,14).map(r=>`<article class="student-record-card"><div><span class="record-eyebrow">${esc(formatTime12(r.time)||'موعد الحصة')}</span><h4>${esc(r.date||'-')}</h4><small>${esc(r.group||st.group||'-')}</small></div><span class="badge ${statusClass(r.status)}">${arStatus(r.status)}</span></article>`).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="calendar"></span><h3>لا توجد سجلات حضور</h3><p>يضيف المدرس سجل الحضور، وسيظهر هنا تلقائيًا.</p></div>';
-  const homeworkCards=homeworks.length?homeworks.slice(0,12).map(h=>`<article class="student-record-card"><div><span class="record-eyebrow">واجب دراسي</span><h4>${esc(h.title||h.homeworkTitle||'واجب')}</h4><small>${esc(h.notes||formatPortalDate(h.date||h.submittedAt)||'')}</small></div><span class="badge ${classRecordComplete(h)?'good':'warn'}">${esc(h.status||(classRecordComplete(h)?'تم عمل الواجب':'قيد المتابعة'))}</span></article>`).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="file-text"></span><h3>لا توجد واجبات مسجلة</h3><p>يمكنك رفع ملف الواجب من الزر الموجود بالأسفل.</p></div>';
+  const assignmentCards=assignments.map(item=>{const questions=Array.isArray(item.questions)?item.questions:[];return `<article class="student-record-card student-assignment-card"><div><span class="record-eyebrow">واجب مطلوب</span><h4>${esc(item.title||'واجب')}</h4>${item.notes?`<small>${esc(item.notes)}</small>`:''}${item.dueDate?`<small>آخر موعد: ${esc(formatPortalDate(item.dueDate))}</small>`:''}${questions.length?`<ol class="student-assignment-questions">${questions.map(question=>`<li>${esc(question)}</li>`).join('')}</ol>`:''}${item.fileUrl?`<a class="small-btn assignment-file-link" href="${esc(item.fileUrl)}" target="_blank" rel="noopener"><span data-icon="file-text"></span> فتح ملف الواجب</a>`:''}</div><span class="badge warn">مطلوب</span></article>`;}).join('');
+  const homeworkCards=assignmentCards+(homeworks.length?homeworks.slice(0,12).map(h=>`<article class="student-record-card"><div><span class="record-eyebrow">تسليم واجب</span><h4>${esc(h.title||h.homeworkTitle||'واجب')}</h4><small>${esc(h.notes||formatPortalDate(h.date||h.submittedAt)||'')}</small></div><span class="badge ${classRecordComplete(h)?'good':'warn'}">${esc(h.status||(classRecordComplete(h)?'تم عمل الواجب':'قيد المتابعة'))}</span></article>`).join(''):'')||'<div class="portal-empty"><span class="iconbox" data-icon="file-text"></span><h3>لا توجد واجبات مسجلة</h3><p>ستظهر الواجبات التي ينشرها المستر هنا.</p></div>';
+  const assignmentPicker=assignments.length?`<select name="assignmentId" required><option value="">اختر الواجب الذي ستسلّمه</option>${assignments.map(item=>`<option value="${esc(item.id)}">${esc(item.title||'واجب')}</option>`).join('')}</select>`:'';
   const recitationCards=recitations.length?recitations.slice(0,12).map(r=>`<article class="student-record-card"><div><span class="record-eyebrow">متابعة التسميع</span><h4>${esc(r.title||'تسميع الحصة')}</h4><small>${esc(formatPortalDate(r.date||r.createdAt))}</small></div><span class="badge ${classRecordComplete(r)?'good':'warn'}">${esc(r.status||(classRecordComplete(r)?'تم التسميع':'قيد المتابعة'))}</span></article>`).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="book-open"></span><h3>لا يوجد تسميع مسجل</h3><p>عندما يعلّم المدرس على التسميع سيظهر هنا تلقائيًا.</p></div>';
   return `<div class="student-app-dashboard">
     ${pending?`<section class="portal-pending-banner"><span data-icon="calendar"></span><div><b>قيد التسجيل — في انتظار موافقة المدرس</b><small>بياناتك اتسجلت وتقدر تدخل بنفس الكود في أي وقت. الحضور والدرجات هتظهر تلقائيًا بعد الاعتماد.</small></div></section>`:''}
@@ -378,7 +383,7 @@ function studentProfileHTML(raw, isParent=false){
     <section class="student-tab-panel" data-student-panel="grades"><div class="student-panel-title"><div><span class="kicker"><span data-icon="bar-chart"></span> النتائج</span><h3>درجات الامتحانات</h3></div><span class="badge">${grades.length} نتيجة</span></div><div class="student-record-list">${gradeCards}</div></section>
     <section class="student-tab-panel" data-student-panel="attendance"><div class="student-panel-title"><div><span class="kicker"><span data-icon="calendar"></span> المتابعة</span><h3>سجل الحضور والغياب</h3></div><span class="badge good">${c.present} حضور</span></div><div class="attendance-mini-kpis"><span><b>${c.totalAttendance}</b> إجمالي</span><span><b>${c.present}</b> حاضر</span><span><b>${c.absent}</b> غائب</span></div><div class="student-record-list">${attendanceCards}</div></section>
     <section class="student-tab-panel" data-student-panel="recitation"><div class="student-panel-title"><div><span class="kicker"><span data-icon="book-open"></span> التسميع</span><h3>سجل تسميع الطالب</h3></div><span class="badge good">${c.recitationCount} مرة</span></div><div class="student-record-list">${recitationCards}</div></section>
-    <section class="student-tab-panel" data-student-panel="homework"><div class="student-panel-title"><div><span class="kicker"><span data-icon="file-text"></span> الواجبات</span><h3>واجبات الطالب</h3></div></div><div class="student-record-list">${homeworkCards}</div><form class="homework-upload-form student-upload-card" data-student-code="${esc(st.studentCode)}"><label><span data-icon="upload"></span><span><b>ارفع الواجب</b><small>صورة أو PDF بحد أقصى 10MB</small></span><input type="file" name="file" accept="image/*,application/pdf"></label><button class="btn primary" type="submit"><span data-icon="upload"></span> رفع الملف</button></form></section>
+    <section class="student-tab-panel" data-student-panel="homework"><div class="student-panel-title"><div><span class="kicker"><span data-icon="file-text"></span> الواجبات</span><h3>واجبات الطالب</h3></div></div><div class="student-record-list">${homeworkCards}</div><form class="homework-upload-form student-upload-card" data-student-code="${esc(st.studentCode)}">${assignmentPicker}<label><span data-icon="upload"></span><span><b>ارفع إجابة الواجب</b><small>صورة أو PDF بحد أقصى 10MB</small></span><input type="file" name="file" accept="image/*,application/pdf"></label><button class="btn primary" type="submit"><span data-icon="upload"></span> رفع الملف</button></form></section>
   </div>`;
 }
 function bindStudentDashboard(){
@@ -450,6 +455,41 @@ function parentReportText(raw){
   const lastAttendance = rows.attendance.slice(0,6).map(r=>`- ${r.date || '-'}: ${arStatus(r.status)} ${r.time ? '('+formatTime12(r.time)+')' : ''}`).join('\n') || '- لا توجد سجلات حضور بعد';
   return `تقرير متابعة شهر ${monthLabel(st)}\n\nالطالب: ${st.name || '-'}\nالكود الموحد: ${st.studentCode || '-'}\nالصف: ${st.grade || '-'}\nالمجموعة: ${st.group || '-'}\n\nملخص الحالة:\n- المستوى العام: ${c.final}% - ${c.level}\n- نسبة الحضور: ${c.attendancePct}%\n- متوسط الدرجات: ${c.avg}%\n- انتظام التسميع: ${c.recitationPct}% (${c.recitationCount} مرة)\n- انتظام الواجب: ${c.homeworkPct}% (${c.homeworkCount} مرة)\n- اشتراك السنتر: ${st.paid ? 'تم الدفع في السنتر' : 'لم يتم الدفع في السنتر'}\n\nآخر درجة: ${lastGrade ? (lastGrade.exam || lastGrade.examTitle || 'امتحان') + ' - ' + (lastGrade.score ?? 'بانتظار التصحيح') : 'لا توجد درجات بعد'}\n\nالحضور والغياب:\n${lastAttendance}\n\nملاحظات المدرس:\n${st.notes || 'لا توجد ملاحظات حالية.'}\n\nمع تحيات مستر محمود إبراهيم فوزي`;
 }
+
+let reportFontBase64='';
+async function loadReportFont(){
+  if(reportFontBase64)return reportFontBase64;
+  const response=await fetch('assets/vendor/DejaVuSans.ttf');
+  if(!response.ok)throw new Error('تعذر تحميل خط التقرير');
+  const bytes=new Uint8Array(await response.arrayBuffer());let binary='';
+  for(let offset=0;offset<bytes.length;offset+=0x8000)binary+=String.fromCharCode(...bytes.subarray(offset,offset+0x8000));
+  reportFontBase64=btoa(binary);return reportFontBase64;
+}
+window.createParentReportPdf=async function(raw){
+  await window.MFAssets.loadPdf();
+  const st=normalizedStudent(raw),c=calcStudent(st),jsPDF=window.jspdf?.jsPDF;
+  if(!jsPDF)throw new Error('مكتبة PDF غير جاهزة');
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+  doc.addFileToVFS('DejaVuSans.ttf',await loadReportFont());doc.addFont('DejaVuSans.ttf','DejaVu','normal');doc.setFont('DejaVu');doc.setR2L(true);
+  const right=195,center=105;doc.setFillColor(21,94,239);doc.rect(0,0,210,38,'F');doc.setTextColor(255,255,255);doc.setFontSize(18);doc.text('منصة مستر محمود إبراهيم فوزي',center,15,{align:'center'});doc.setFontSize(13);doc.text(`تقرير ولي الأمر الشهري — ${monthLabel(st)}`,center,27,{align:'center'});
+  doc.setTextColor(20,35,45);doc.setFontSize(14);let y=49;
+  const line=(label,value)=>{doc.text(`${label}: ${value||'-'}`,right,y,{align:'right'});y+=9;};
+  line('اسم الطالب',st.name);line('كود الطالب',st.studentCode);line('الصف',st.grade);line('المجموعة',st.group);line('المستوى العام',`${c.final}% — ${c.level}`);
+  y+=2;doc.setDrawColor(205,220,222);doc.line(15,y,195,y);y+=10;doc.setFontSize(12);
+  line('الحضور',`${c.attendancePct}% (${c.present} حاضر من ${c.totalAttendance})`);line('متوسط الدرجات',`${c.avg}%`);line('انتظام الواجب',`${c.homeworkPct}%`);line('انتظام التسميع',`${c.recitationPct}%`);line('اشتراك السنتر',st.paid?'تم الدفع في السنتر':'لم يتم الدفع');
+  y+=3;doc.setFontSize(13);doc.text('ملاحظات المستر',right,y,{align:'right'});y+=8;doc.setFontSize(11);const notes=doc.splitTextToSize(st.notes||'لا توجد ملاحظات حالية.',175);doc.text(notes,right,y,{align:'right',maxWidth:175});y+=notes.length*6+8;
+  const grades=studentReportRows(st).grades.filter(row=>row.score!==undefined&&row.score!==null).slice(-6).reverse();
+  if(grades.length&&y<250){doc.setFontSize(13);doc.text('أحدث الدرجات',right,y,{align:'right'});y+=8;doc.setFontSize(10);grades.forEach(row=>{if(y<275){doc.text(`${row.exam||row.examTitle||'امتحان'} — ${row.score}%`,right,y,{align:'right'});y+=6;}});}
+  doc.setFontSize(9);doc.setTextColor(90,105,110);doc.text(`تاريخ التقرير: ${new Date().toLocaleDateString('ar-EG')} — مع تحيات مستر محمود إبراهيم فوزي`,center,290,{align:'center'});
+  return doc.output('blob');
+};
+window.shareParentReportPdf=async function(raw,phone){
+  const st=normalizedStudent(raw),blob=await createParentReportPdf(st),file=new File([blob],`تقرير-${String(st.name||st.studentCode).replace(/[\\/:*?"<>|]/g,'-')}.pdf`,{type:'application/pdf'});
+  if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:`تقرير ${st.name}`,text:'تقرير المتابعة الشهري من منصة مستر محمود إبراهيم فوزي'});return 'shared';}
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  if(phone)window.open(whatsappLink(phone,'تم تجهيز تقرير المتابعة الشهري بصيغة PDF. أرفق الملف الذي تم تنزيله في هذه المحادثة.'),'_blank');
+  return 'downloaded';
+};
 
 function parentReportHTML(raw){
   const st = normalizedStudent(raw);
@@ -577,12 +617,13 @@ window.copyParentReport = async function(code){
   catch(e){toast('تعذر النسخ، جرّب من متصفح أحدث');}
 };
 
-window.openParentWhatsApp = function(code){
+window.openParentWhatsApp = async function(code){
   const st = (lastParentStudent && lastParentStudent.studentCode===code) ? lastParentStudent : (window.MF_FIREBASE_CONFIG?.useSecureFunctions===false ? findStudentByCode(code) : null);
   if(!st) return toast('لم يتم العثور على الطالب');
   const phone = whatsappPhone(st.parentPhone);
   if(!phone) return toast('رقم ولي الأمر غير موجود في بيانات الطالب');
-  window.open(whatsappLink(phone, parentReportText(st)), '_blank');
+  try{await shareParentReportPdf(st,phone);toast('تم تجهيز تقرير PDF للمشاركة');}
+  catch(error){console.error(error);toast('تعذر إنشاء PDF؛ استخدم زر الطباعة وحفظ PDF.');}
 };
 
 window.printParentReport = function(){
@@ -627,7 +668,7 @@ window.closeParentQrScanner = async function(){
   const v=document.getElementById('parentQrVideo'); if(v?.srcObject) v.srcObject.getTracks().forEach(t=>t.stop());
   const modal=document.getElementById('parentQrModal'); if(modal) modal.hidden=true;
 };
-function bindHomeworkForms(){document.querySelectorAll('.homework-upload-form').forEach(form=>{form.onsubmit=async event=>{event.preventDefault();const input=form.querySelector('input[type=file]'),button=form.querySelector('button[type=submit]'),file=input?.files?.[0],code=form.dataset.studentCode;if(!file)return toast('اختار ملف الواجب أولًا');if(file.size>10*1024*1024)return toast('حجم الملف أكبر من 10MB');button?.classList.add('is-loading');if(button)button.disabled=true;try{if(!window.MFCloud?.uploadHomework)throw new Error('Homework upload service unavailable');await window.MFCloud.uploadHomework(file,code);if(input)input.value='';toast('تم رفع الواجب بنجاح');}catch(error){toast(firebaseFriendlyError(error,'تعذر رفع الواجب. الملف لم يُسجل ويمكنك المحاولة مرة أخرى.'));}finally{button?.classList.remove('is-loading');if(button)button.disabled=false;}};});}
+function bindHomeworkForms(){document.querySelectorAll('.homework-upload-form').forEach(form=>{form.onsubmit=async event=>{event.preventDefault();const input=form.querySelector('input[type=file]'),picker=form.querySelector('[name=assignmentId]'),button=form.querySelector('button[type=submit]'),file=input?.files?.[0],code=form.dataset.studentCode,assignmentId=picker?.value||'';if(picker&&!assignmentId)return toast('اختار الواجب الذي ستسلّمه');if(!file)return toast('اختار ملف إجابة الواجب أولًا');if(file.size>10*1024*1024)return toast('حجم الملف أكبر من 10MB');button?.classList.add('is-loading');if(button)button.disabled=true;try{if(!window.MFCloud?.uploadHomework)throw new Error('Homework upload service unavailable');await window.MFCloud.uploadHomework(file,code,assignmentId);if(input)input.value='';if(picker)picker.value='';toast('تم رفع إجابة الواجب بنجاح');}catch(error){toast(firebaseFriendlyError(error,'تعذر رفع الواجب. الملف لم يُسجل ويمكنك المحاولة مرة أخرى.'));}finally{button?.classList.remove('is-loading');if(button)button.disabled=false;}};});}
 function setupBookingSteps(form){if(!form)return;const steps=[...form.querySelectorAll('[data-booking-step]')],indicators=[...form.querySelectorAll('[data-booking-indicator]')];const show=number=>{steps.forEach(step=>step.classList.toggle('active',Number(step.dataset.bookingStep)===number));indicators.forEach(item=>{const value=Number(item.dataset.bookingIndicator);item.classList.toggle('active',value===number);item.classList.toggle('done',value<number);});};form.querySelector('[data-booking-next]')?.addEventListener('click',()=>{const first=steps[0],required=[...first.querySelectorAll('[required]')];for(const input of required){if(!input.checkValidity()){input.reportValidity();return;}}show(2);steps[1]?.scrollIntoView({behavior:'smooth',block:'center'});});form.querySelector('[data-booking-back]')?.addEventListener('click',()=>show(1));form.addEventListener('booking-success',()=>{show(3);form.scrollIntoView({behavior:'smooth',block:'center'});});show(1);}
 function setupBooking(){
   const form=document.getElementById('bookingForm');
@@ -915,6 +956,20 @@ function setupActiveNavigation(){
   update();
   window.addEventListener('hashchange',update);
 }
+function setupUnifiedPublicChrome(){
+  if(document.body.classList.contains('admin-dashboard-active')||location.pathname.endsWith('teacher-login.html'))return;
+  const navbar=document.querySelector('.site-header .navbar');
+  if(navbar&&!navbar.querySelector('.navlinks')){
+    const nav=document.createElement('nav');nav.className='navlinks';nav.setAttribute('aria-label','التنقل الرئيسي');
+    nav.innerHTML='<a href="index.html">الرئيسية</a><a href="services.html">الخدمات</a><a href="index.html#booking">الحجز</a><a href="parent.html">ولي الأمر</a><a href="student.html">بوابة الطالب</a><a href="materials.html">المراجعات والأسئلة</a><a href="exams.html">الامتحانات</a>';
+    navbar.querySelector('.header-actions')?.before(nav)||navbar.appendChild(nav);
+  }
+  if(!document.querySelector('.mobile-bottom')){
+    const nav=document.createElement('nav');nav.className='mobile-bottom';nav.setAttribute('aria-label','التنقل السريع');
+    nav.innerHTML='<a href="index.html"><span data-icon="atom"></span><span>الرئيسية</span></a><a href="index.html#booking"><span data-icon="calendar"></span><span>الحجز</span></a><a href="student.html"><span data-icon="user"></span><span>الطالب</span></a><a href="parent.html"><span data-icon="users"></span><span>ولي الأمر</span></a><a href="exams.html"><span data-icon="clipboard"></span><span>امتحان</span></a>';
+    document.body.appendChild(nav);
+  }
+}
 function bindLocalizedDigits(){
   if(window.__mfLocalizedDigitsBound)return;window.__mfLocalizedDigitsBound=true;
   document.addEventListener('beforeinput',event=>{const input=event.target;if(!(input instanceof HTMLInputElement)||!event.data)return;const converted=toEnglishDigits(event.data);if(converted===event.data)return;if(input.type==='number'){event.preventDefault();input.value=`${input.value||''}${converted}`;input.dispatchEvent(new Event('input',{bubbles:true}));return;}if(typeof input.setRangeText!=='function')return;try{event.preventDefault();const start=input.selectionStart??input.value.length,end=input.selectionEnd??start;input.setRangeText(converted,start,end,'end');input.dispatchEvent(new Event('input',{bubbles:true}));}catch(_){ }});
@@ -953,5 +1008,5 @@ function setupPWAInstall(){
   window.addEventListener('appinstalled',()=>{button.hidden=true;toast('تم تثبيت المنصة على الهاتف');});
 }
 function setupClientErrorReporting(){window.addEventListener('error',event=>{window.MFCloud?.reportClientError?.({message:String(event.message||'خطأ JavaScript'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});window.addEventListener('unhandledrejection',event=>{window.MFCloud?.reportClientError?.({message:String(event.reason?.message||event.reason||'Promise rejection'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});}
-function init(){setupTheme(); setupActiveNavigation(); bindLocalizedDigits(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); setupLeaderboardGradePicker(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderUnifiedResourcesPage(); initFirebaseData();}
+function init(){setupTheme();setupUnifiedPublicChrome();setupActiveNavigation(); bindLocalizedDigits(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); setupLeaderboardGradePicker(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderUnifiedResourcesPage(); initFirebaseData();}
 document.addEventListener('DOMContentLoaded',init);

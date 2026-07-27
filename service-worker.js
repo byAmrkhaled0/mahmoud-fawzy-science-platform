@@ -1,9 +1,10 @@
-const CACHE_NAME = "mf-science-v56151-production-grade-leaderboards";
+const CACHE_NAME = "mf-science-v5700-production-center-performance";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
   "/terms.html", "/offline.html", "/assets/site.css", "/assets/v55.css",
-  "/assets/v56.css", "/assets/app.js", "/assets/firebase-sync.js",
+  "/assets/v56.css", "/assets/site.bundle.css", "/assets/public.bundle.js",
+  "/assets/admin.bundle.js", "/assets/app.js", "/assets/firebase-sync.js",
   "/assets/firebase-config.js", "/assets/v53-upgrades.js",
   "/assets/v56-fixes.js", "/assets/logo-icon.svg", "/assets/icon-192.png",
   "/assets/icon-512.png", "/assets/icon-maskable-512.png",

@@ -216,3 +216,25 @@
   .compact-booking-pass{max-width:330px!important}
   .compact-portal-links{grid-template-columns:1fr!important}
 }
+/* v57 — center workflow, mobile performance and print polish */
+.continuous-qr-status{display:grid;gap:4px;margin:0 0 12px;padding:13px 15px;border:1px solid var(--border);border-radius:15px;background:var(--surface-2);text-align:center}
+.continuous-qr-status b{font-size:1rem}.continuous-qr-status small{color:var(--muted);font-weight:800}
+.continuous-qr-status.success{background:rgba(18,183,106,.12);border-color:rgba(18,183,106,.35);color:var(--green)}
+.continuous-qr-status.processing{background:rgba(21,94,239,.1);border-color:rgba(21,94,239,.28);color:var(--brand)}
+.continuous-qr-status.warning{background:rgba(240,180,60,.14);border-color:rgba(240,180,60,.35)}
+.continuous-qr-status.error{background:rgba(223,59,59,.1);border-color:rgba(223,59,59,.3);color:var(--red)}
+.schedule-filter-bar{display:grid;grid-template-columns:minmax(240px,1fr) repeat(2,minmax(160px,.35fr));gap:10px;margin-bottom:14px}
+.assignment-admin-row{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:10px}.assignment-admin-row h3{margin:7px 0 3px}.assignment-admin-row small{color:var(--muted);font-weight:800}
+.student-assignment-card{align-items:flex-start!important}.student-assignment-questions{margin:10px 0;padding-right:22px;line-height:1.9}.assignment-file-link{display:inline-flex;margin-top:9px}
+.site-header .navbar{min-height:88px}.footer .container{align-items:center}
+@media(max-width:760px){.schedule-filter-bar{grid-template-columns:1fr}.assignment-admin-row{align-items:stretch;flex-direction:column}.qr-modal-card{width:min(100%,520px);max-height:calc(100dvh - 18px);overflow:auto}.site-header .navbar{min-height:64px}.student-assignment-card{display:grid!important}.admin-form-grid{grid-template-columns:1fr!important}}
+@media print{
+  @page{size:A4;margin:10mm}
+  body{background:#fff!important;color:#102333!important;font-family:Arial,Tahoma,sans-serif!important}
+  .site-header,.footer,.mobile-bottom-nav,.support-widget,.back-to-top,.no-print,.parent-actions-v38{display:none!important}
+  .container{width:100%!important;max-width:none!important}
+  .parent-monthly-report-v40{box-shadow:none!important;border:0!important}
+  .parent-report-cover-v40{break-inside:avoid}
+  .parent-detail-grid-v40{grid-template-columns:1fr 1fr!important}
+  .parent-panel-v40,.metric,.parent-status-card-v40{break-inside:avoid}
+}
