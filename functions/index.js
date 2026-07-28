@@ -536,19 +536,21 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   const requestedGrade = text(body.grade, 80);
   const requestedGroup = text(body.group, 100);
   const selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
-  if (!selectedScheduleId) throw new HttpsError('failed-precondition', 'اختر موعدًا من مواعيد الصف المتاحة.');
   // These reads do not depend on one another. Parallel execution removes one
   // complete Firestore round-trip from each registration request.
   const [scheduleSnap, code] = await Promise.all([
-    db.collection('groups').doc(selectedScheduleId).get(),
+    selectedScheduleId ? db.collection('groups').doc(selectedScheduleId).get() : Promise.resolve(null),
     uniqueUnifiedAccessCode(8)
   ]);
-  if (!scheduleSnap.exists || scheduleSnap.data().active === false) {
-    throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
+  let schedule = null;
+  if (selectedScheduleId) {
+    if (!scheduleSnap?.exists || scheduleSnap.data().active === false) {
+      throw new HttpsError('failed-precondition', 'هذا الموعد لم يعد متاحًا. حدّث الصفحة واختر موعدًا آخر.');
+    }
+    schedule = scheduleSnap.data();
+    if (text(schedule.grade, 80) !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
+    if (text(schedule.name, 100) !== requestedGroup) throw new HttpsError('failed-precondition', 'المجموعة المختارة تغيّرت. حدّث الصفحة واخترها من جديد.');
   }
-  const schedule = scheduleSnap.data();
-  if (text(schedule.grade, 80) !== requestedGrade) throw new HttpsError('failed-precondition', 'الموعد المختار غير متاح لهذا الصف.');
-  if (text(schedule.name, 100) !== requestedGroup) throw new HttpsError('failed-precondition', 'المجموعة المختارة تغيّرت. حدّث الصفحة واخترها من جديد.');
   // All codes shown after booking are digits only and can be typed with Arabic
   // or English numerals. They are issued immediately and never change later.
   const studentCode = code;
@@ -562,11 +564,12 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     parentPhone,
     grade: requestedGrade,
     month: text(body.month, 40),
-    group: text(schedule.name, 100),
+    group: schedule ? text(schedule.name, 100) : '',
     scheduleId: selectedScheduleId,
-    scheduleDays: text(schedule.days, 100),
-    scheduleStartTime: text(schedule.startTime, 20),
-    scheduleEndTime: text(schedule.endTime, 20),
+    scheduleDays: schedule ? text(schedule.days, 100) : '',
+    scheduleStartTime: schedule ? text(schedule.startTime, 20) : '',
+    scheduleEndTime: schedule ? text(schedule.endTime, 20) : '',
+    schedulePending: !schedule,
     academicYear: text(body.academicYear, 20),
     term: text(body.term, 40),
     notes: text(body.notes, 1000),

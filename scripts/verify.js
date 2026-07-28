@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
@@ -135,13 +136,25 @@ const fixesSourceCode = read('assets/v56-fixes.js');
 if (!adminSourceCode.includes("loadSiteData({fast:true})") || !adminSourceCode.includes('hydrateAdminRecords')) fail('Staged admin loading is missing');
 if (!appSourceCode.includes('staffCacheOnly') || !appSourceCode.includes('if(isStaffWorkspace())return;')) fail('Compact staff browser cache protection is missing');
 if (!fixesSourceCode.includes('showMoreAdminStudents') || !fixesSourceCode.includes('slice(0,adminStudentVisible)')) fail('Paginated student rendering is missing');
-if (!appSourceCode.includes('window.Html5Qrcode') || !appSourceCode.includes("loadQrScanner:()=>loadLazyScript('qr-scanner'")) fail('Cross-browser lazy QR scanner fallback is missing');
+if (!appSourceCode.includes('ensureQrScannerLibrary') || !appSourceCode.includes("loadQrScanner:()=>loadLazyScript('qr-scanner'")) fail('Cross-browser QR scanner fallback is missing');
 for (const page of ['student.html','parent.html','teacher-login.html']) {
-  if (read(page).includes('assets/vendor/html5-qrcode-2.3.8.min.js')) fail(`QR scanner is still eagerly loaded by ${page}`);
+  if (!read(page).includes('assets/vendor/html5-qrcode-2.3.8.min.js')) fail(`QR scanner preload is missing from ${page}`);
 }
 if (read('teacher-login.html').includes('assets/vendor/xlsx-0.18.5.full.min.js') || !read('assets/v53-upgrades.js').includes('loadSpreadsheet')) fail('Excel must load only when an Excel import starts');
 if (/unpkg\.com\/html5-qrcode|cdn\.jsdelivr\.net\/npm\/xlsx/.test([read('student.html'),read('parent.html'),read('teacher-login.html')].join('\n'))) fail('Tracking-sensitive QR or Excel CDN dependency is still present');
 if (!fs.existsSync(path.join(root,'assets/vendor/html5-qrcode-2.3.8.min.js')) || !fs.existsSync(path.join(root,'assets/vendor/xlsx-0.18.5.full.min.js'))) fail('Vendored QR or Excel file is missing');
+try {
+  const qrSandbox = {};
+  qrSandbox.window = qrSandbox;
+  vm.runInNewContext(read('assets/vendor/html5-qrcode-2.3.8.min.js'), qrSandbox);
+  if (typeof qrSandbox.Html5Qrcode !== 'function') fail('Vendored QR scanner does not initialize');
+} catch (error) {
+  fail(`Vendored QR scanner validation failed: ${error.message}`);
+}
+for (const name of ['renderAttendance','renderExams']) {
+  const count = [...adminSourceCode.matchAll(new RegExp(`function\\s+${name}\\s*\\(`,'g'))].length;
+  if (count !== 1) fail(`Duplicate or missing admin function ${name}: found ${count}`);
+}
 if (!adminSourceCode.includes("toggleAttribute('inert',shouldHide)") || !adminSourceCode.includes('adminDrawerReturnFocus')) fail('Mobile admin drawer focus isolation is incomplete');
 if (!appSourceCode.includes('printParentReport') || !read('assets/v56.css').includes('printing-parent-report')) fail('Parent PDF print isolation fix is missing');
 if (!appSourceCode.includes('recitationPct') || !functionsSource.includes('recitationPct')) fail('Recitation/homework ranking linkage is missing');
@@ -183,7 +196,8 @@ if (!rules.includes('match /_system/leaderboard') || !rules.includes('allow crea
 if (!read('index.html').includes('refreshLeaderboardButton') || !read('assets/app.js').includes('window.refreshPublicLeaderboard')) fail('Public leaderboard refresh control is missing');
 if (!read('index.html').includes('bookingGroupSearch') || !read('assets/app.js').includes('لا توجد مجموعة مطابقة للبحث')) fail('Booking group search is incomplete');
 if (!read('assets/firebase-sync.js').includes('saveGroup:async group') || !upgrade.includes('MFCloud?.saveGroup')) fail('Focused group persistence is incomplete');
-if (!read('functions/index.js').includes("db.collection('groups').doc(selectedScheduleId).get()") || !read('functions/index.js').includes("text(schedule.grade, 80) !== requestedGrade") || !read('functions/index.js').includes("text(schedule.name, 100) !== requestedGroup") || !read('functions/index.js').includes('scheduleStartTime')) fail('Secure booking schedule validation is incomplete');
+if (!read('functions/index.js').includes("db.collection('groups').doc(selectedScheduleId).get()") || !read('functions/index.js').includes("text(schedule.grade, 80) !== requestedGrade") || !read('functions/index.js').includes("text(schedule.name, 100) !== requestedGroup") || !read('functions/index.js').includes('schedulePending: !schedule')) fail('Secure optional booking schedule validation is incomplete');
+if (/<select id="bookingGroup"[^>]*required/.test(read('index.html')) || !read('assets/app.js').includes('الحجز بدون موعد')) fail('Booking without a published schedule is unavailable');
 if (!read('assets/app.js').includes('normalizeText(item.grade)===selected') || read('index.html').includes('bookingStatusForm')) fail('Grade-only booking groups or booking-status removal is incomplete');
 if (!read('service-worker.js').includes('caches.match(url.pathname,{ignoreSearch:true})') || !read('assets/app.js').includes("localDevelopment=['localhost','127.0.0.1','0.0.0.0']")) fail('Portal navigation/offline fallback safeguards are incomplete');
 if (!read('assets/admin.js').includes('bookingActionPending') || read('assets/admin.js').includes("showIssuedCodes(student,'تم قبول الحجز وتسجيل الطالب')")) fail('Instant repeated booking approval safeguards are incomplete');
