@@ -18,6 +18,7 @@
 <link href="assets/site.css?v=56.15.0" rel="stylesheet"/>
 <link href="assets/v55.css?v=56.15.0" rel="stylesheet"/>
 <link href="assets/v56.css?v=56.15.0" rel="stylesheet"/>
+<link href="assets/v58.css?v=58.0.0" rel="stylesheet"/>
 </head>
 <body id="top">
 <header class="site-header">
@@ -101,7 +102,7 @@
 <form class="card grid grid-2 booking-form-compact" id="bookingForm">
 <div class="booking-steps" aria-label="خطوات الحجز"><span class="active" data-booking-indicator="1"><b>1</b><small>بيانات الطالب</small></span><i></i><span data-booking-indicator="2"><b>2</b><small>المجموعة والموعد</small></span><i></i><span data-booking-indicator="3"><b>3</b><small>استلام الكود</small></span></div>
 <div class="booking-step active" data-booking-step="1">
-<div class="field"><label>اسم الطالب</label><input name="name" placeholder="اكتب اسم الطالب" required=""/></div>
+<div class="field"><label>اسم الطالب الثلاثي</label><input name="name" placeholder="اكتب اسم الطالب ثلاثيًا على الأقل" minlength="8" autocomplete="name" required=""/><small class="field-hint">إذا تشابه الاسم الثلاثي مع طالب آخر، اكتب الاسم الرباعي.</small></div>
 <div class="field"><label>رقم الطالب</label><input name="studentPhone" placeholder="مثال: 010xxxxxxxx" inputmode="tel" required=""/></div>
 <div class="field"><label>رقم ولي الأمر</label><input name="parentPhone" placeholder="اكتب الرقم بالعربي أو الإنجليزي" inputmode="tel" required=""/><small class="field-hint">ينفع نفس رقم الطالب، وينفع تكرار نفس رقم ولي الأمر لأكثر من ابن.</small></div>
 <button class="btn primary booking-next" type="button" data-booking-next><span data-icon="external-link"></span> التالي: اختار الموعد</button>

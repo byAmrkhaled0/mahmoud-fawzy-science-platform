@@ -7,6 +7,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2/options');
+const { normalizeStudentName, studentNameIdentity, hasAtLeastThreeNameParts } = require('./lib/student-name');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'europe-west1', maxInstances: 10, memory: '256MiB' });
@@ -73,6 +74,47 @@ function publicStudentName(value) {
   // The teacher requested the leaderboard to use the exact full student name
   // saved on the platform instead of shortening the family name to an initial.
   return text(value, 80).replace(/\s+/g, ' ').trim();
+}
+
+function duplicateStudentNameError() {
+  return new HttpsError(
+    'already-exists',
+    'هذا الطالب مسجل بالفعل على المنصة. استخدم الكود السابق أو تواصل مع مستر محمود لتحديث بياناته.'
+  );
+}
+
+async function assertStudentNameAvailable(name, options = {}) {
+  const { normalizedName, nameKey } = studentNameIdentity(name);
+  if (!hasAtLeastThreeNameParts(normalizedName) || !nameKey) {
+    throw new HttpsError('invalid-argument', 'اكتب اسم الطالب ثلاثيًا على الأقل، وإذا تكرر الاسم الثلاثي اكتب الاسم الرباعي.');
+  }
+  const excludeStudentCode = text(options.excludeStudentCode, 40);
+  const allowedRequestId = text(options.requestId, 80);
+  const [claimed, keyedStudents, keyedBookings, exactStudents] = await Promise.all([
+    db.collection('_student_name_claims').doc(nameKey).get(),
+    db.collection('students').where('nameKey', '==', nameKey).limit(2).get(),
+    db.collection('bookings').where('nameKey', '==', nameKey).limit(2).get(),
+    db.collection('students').where('studentName', '==', text(name, 100).replace(/\s+/g, ' ').trim()).limit(5).get()
+  ]);
+  const activeStudentExists = [...keyedStudents.docs, ...exactStudents.docs]
+    .some(doc => doc.id !== excludeStudentCode && doc.data().active !== false);
+  const activeBookingExists = keyedBookings.docs.length > 0;
+  const claimBelongsToOtherStudent = claimed.exists
+    && text(claimed.data().studentCode, 40) !== excludeStudentCode
+    && (!allowedRequestId || text(claimed.data().requestId, 80) !== allowedRequestId);
+  if (activeStudentExists || activeBookingExists || claimBelongsToOtherStudent) throw duplicateStudentNameError();
+
+  const [legacyStudents, legacyBookings] = await Promise.all([
+    db.collection('students').select('name', 'studentName', 'active').limit(2000).get(),
+    db.collection('bookings').select('name', 'studentName').limit(2000).get()
+  ]);
+  const legacyStudentExists = legacyStudents.docs.some(doc => doc.id !== excludeStudentCode
+    && doc.data().active !== false
+    && normalizeStudentName(doc.data().studentName || doc.data().name) === normalizedName);
+  const legacyBookingExists = legacyBookings.docs.some(doc =>
+    normalizeStudentName(doc.data().studentName || doc.data().name) === normalizedName);
+  if (legacyStudentExists || legacyBookingExists) throw duplicateStudentNameError();
+  return { normalizedName, nameKey, claimRef: db.collection('_student_name_claims').doc(nameKey) };
 }
 
 async function uniqueNumericCode(collection, length = 8) {
@@ -450,10 +492,11 @@ exports.getPublicLeaderboard = onCall(CALLABLE_OPTIONS, async request => {
 exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
   const staff = await requireStaff(request);
   const body = request.data || {};
-  const name = text(body.studentName || body.name, 100);
+  const name = text(body.studentName || body.name, 100).replace(/\s+/g, ' ').trim();
   const parentPhone = digits(body.parentPhone);
-  if (name.length < 3) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب كاملًا.');
+  if (!hasAtLeastThreeNameParts(name)) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب ثلاثيًا على الأقل، وإذا تكرر الاسم الثلاثي اكتب الاسم الرباعي.');
   if (digits(parentPhone).length < 10) throw new HttpsError('invalid-argument', 'اكتب رقم ولي أمر صحيحًا.');
+  const nameIdentity = await assertStudentNameAvailable(name);
 
   for (let attemptNo = 0; attemptNo < 8; attemptNo += 1) {
     const studentCode = await uniqueUnifiedAccessCode(8);
@@ -468,6 +511,8 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
       parentCode,
       studentName: name,
       name,
+      nameKey: nameIdentity.nameKey,
+      normalizedName: nameIdentity.normalizedName,
       studentPhone: digits(body.studentPhone),
       parentPhone,
       grade: text(body.grade, 80),
@@ -507,10 +552,21 @@ exports.createStudentAccess = onCall(CALLABLE_OPTIONS, async request => {
       actorRole: staff.role || '',
       createdAt: FieldValue.serverTimestamp()
     });
+    batch.create(nameIdentity.claimRef, {
+      nameKey: nameIdentity.nameKey,
+      normalizedName: nameIdentity.normalizedName,
+      studentCode,
+      source: 'staff',
+      status: 'active',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
     try {
       await batch.commit();
       return { ...portal, studentCode, code: studentCode, parentCode, active: student.active };
     } catch (error) {
+      const existingClaim = await nameIdentity.claimRef.get().catch(() => null);
+      if (existingClaim?.exists) throw duplicateStudentNameError();
       if (attemptNo === 7) throw new HttpsError('aborted', 'تعذر إنشاء أكواد فريدة، حاول مرة أخرى.');
     }
   }
@@ -528,11 +584,12 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   }
   const identity = `${digits(body.parentPhone)}:${request.rawRequest.ip || ''}`;
   await rateLimitPublic('booking-v2', identity, request, 12, 60, 10 * 60 * 1000);
-  const name = text(body.name, 80);
+  const name = text(body.name, 80).replace(/\s+/g, ' ').trim();
   const studentPhone = digits(body.studentPhone);
   const parentPhone = digits(body.parentPhone);
-  if (name.length < 3) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب كاملًا.');
+  if (!hasAtLeastThreeNameParts(name)) throw new HttpsError('invalid-argument', 'اكتب اسم الطالب ثلاثيًا على الأقل، وإذا تكرر الاسم الثلاثي اكتب الاسم الرباعي.');
   if (studentPhone.length < 10 || parentPhone.length < 10) throw new HttpsError('invalid-argument', 'اكتب أرقام هاتف صحيحة.');
+  const nameIdentity = await assertStudentNameAvailable(name, { requestId });
   const requestedGrade = text(body.grade, 80);
   const requestedGroup = text(body.group, 100);
   const selectedScheduleId = cleanDocId(text(body.scheduleId, 100));
@@ -560,6 +617,8 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
     code,
     name,
     studentName: name,
+    nameKey: nameIdentity.nameKey,
+    normalizedName: nameIdentity.normalizedName,
     studentPhone,
     parentPhone,
     grade: requestedGrade,
@@ -616,6 +675,17 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
   batch.create(db.collection('students').doc(studentCode), provisionalStudent);
   batch.create(db.collection('student_portal').doc(studentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
   batch.create(db.collection('parent_portal').doc(parentCode), { ...provisionalPortal, parentCode, active: true, updatedAt: FieldValue.serverTimestamp() });
+  batch.create(nameIdentity.claimRef, {
+    nameKey: nameIdentity.nameKey,
+    normalizedName: nameIdentity.normalizedName,
+    studentCode,
+    bookingCode: code,
+    requestId,
+    source: 'public-booking',
+    status: 'pending',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  });
   const response = { code, bookingCode: code, studentCode, parentCode, status: payload.status };
   if (requestRef) batch.create(requestRef, { requestId, response, createdAt: FieldValue.serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000) });
   try {
@@ -628,6 +698,8 @@ exports.createBooking = onCall(CALLABLE_OPTIONS, async request => {
       const previous = await requestRef.get().catch(() => null);
       if (previous?.exists && previous.data().response) return previous.data().response;
     }
+    const existingClaim = await nameIdentity.claimRef.get().catch(() => null);
+    if (existingClaim?.exists) throw duplicateStudentNameError();
     throw error;
   }
   return response;
@@ -734,6 +806,8 @@ exports.rejectBooking = onCall(CALLABLE_OPTIONS, async request => {
       tx.set(db.collection('student_portal').doc(cleanDocId(studentCode)), { active: false, approvalStatus: 'تم رفض الحجز', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     }
     if (parentCode) tx.set(db.collection('parent_portal').doc(cleanDocId(parentCode)), { active: false, approvalStatus: 'تم رفض الحجز', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    const { nameKey } = studentNameIdentity(data.studentName || data.name);
+    if (nameKey) tx.delete(db.collection('_student_name_claims').doc(nameKey));
     tx.set(statusRef, { ...data, status: 'تم رفض الحجز', rejectedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     if (bookingSnap.exists) tx.delete(bookingRef);
     tx.set(db.collection('activityLog').doc(), { action: 'تم رفض حجز طالب', meta: { bookingCode, studentCode }, actorUid: staff.uid, actorEmail: staff.email || '', actorRole: staff.role || '', createdAt: FieldValue.serverTimestamp() });
@@ -1374,6 +1448,7 @@ exports.deleteStudentSafely = onCall({ region: 'europe-west1', timeoutSeconds: 1
   const studentSnap = await studentRef.get();
   if (!studentSnap.exists) throw new HttpsError('not-found', 'الطالب غير موجود.');
   const student = studentSnap.data();
+  const { nameKey } = studentNameIdentity(student.studentName || student.name);
   const relatedCollections = ['attendance','grades','recitations','homework_submissions','exam_attempts'];
   const relatedEntries = {};
   const relatedDocs = [];
@@ -1395,6 +1470,7 @@ exports.deleteStudentSafely = onCall({ region: 'europe-west1', timeoutSeconds: 1
   const archiveName = `deleted-students/${cleanDocId(studentCode)}/${new Date().toISOString().replace(/[:.]/g, '-')}.json.gz`;
   await admin.storage().bucket().file(archiveName).save(zlib.gzipSync(Buffer.from(JSON.stringify(deletionSnapshot), 'utf8')), { resumable: false, contentType: 'application/gzip' });
   const refs = [studentRef, db.collection('student_portal').doc(cleanDocId(studentCode)), db.collection('payments').doc(cleanDocId(studentCode)), attemptsParent, ...relatedDocs];
+  if (nameKey) refs.push(db.collection('_student_name_claims').doc(nameKey));
   if (student.parentCode) refs.push(db.collection('parent_portal').doc(cleanDocId(student.parentCode)));
   if (attemptsChildren) refs.push(...attemptsChildren.docs.map(doc => doc.ref));
   await commitDeleteRefs(refs);

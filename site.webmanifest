@@ -12,6 +12,10 @@
     "minimal-ui"
   ],
   "orientation": "any",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "prefer_related_applications": false,
   "background_color": "#f6f8ff",
   "theme_color": "#155eef",
   "dir": "rtl",

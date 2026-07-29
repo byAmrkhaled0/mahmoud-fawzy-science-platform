@@ -1,9 +1,9 @@
-const CACHE_NAME = "mf-science-v5710-production-stability";
+const CACHE_NAME = "mf-science-v5800-portals-qr-pwa";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
   "/terms.html", "/offline.html", "/assets/site.css", "/assets/v55.css",
-  "/assets/v56.css", "/assets/site.bundle.css", "/assets/public.bundle.js",
+  "/assets/v56.css", "/assets/v58.css", "/assets/site.bundle.css", "/assets/public.bundle.js",
   "/assets/admin.bundle.js", "/assets/app.js", "/assets/firebase-sync.js",
   "/assets/firebase-config.js", "/assets/v53-upgrades.js",
   "/assets/v56-fixes.js", "/assets/logo-icon.svg", "/assets/icon-192.png",
@@ -40,7 +40,12 @@ try {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(clients.openWindow(event.notification.data?.url || '/teacher-login.html?section=bookings'));
+  const target=event.notification.data?.url||'/teacher-login.html?section=bookings';
+  event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(rows=>{
+    const existing=rows.find(client=>new URL(client.url).origin===self.location.origin);
+    if(existing){existing.navigate(target);return existing.focus();}
+    return clients.openWindow(target);
+  }));
 });
 
 self.addEventListener("install", event => {

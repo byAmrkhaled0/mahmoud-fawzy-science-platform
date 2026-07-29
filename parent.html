@@ -12,9 +12,10 @@
 <link href="assets/logo-icon.svg" rel="icon" type="image/svg+xml"/>
 <link href="assets/icon-192.png" rel="apple-touch-icon"/>
 <link href="site.webmanifest" rel="manifest"/>
-<link href="assets/site.css?v=57.1.0" rel="stylesheet"/>
-<link href="assets/v55.css?v=57.1.0" rel="stylesheet"/>
-<link href="assets/v56.css?v=57.1.0" rel="stylesheet"/>
+<link href="assets/site.css?v=58.0.0" rel="stylesheet"/>
+<link href="assets/v55.css?v=58.0.0" rel="stylesheet"/>
+<link href="assets/v56.css?v=58.0.0" rel="stylesheet"/>
+<link href="assets/v58.css?v=58.0.0" rel="stylesheet"/>
 <title>صفحة ولي الأمر | مستر محمود ابراهيم فوزي</title>
 <meta content="صفحة ولي الأمر لمتابعة تقرير الطالب: الحضور، الغياب، التسميع، الدرجات، الواجبات وحالة الدفع." name="description"/>
 </head>
@@ -85,12 +86,14 @@
     <div class="profile-top">
       <div>
         <h3>مسح QR الطالب</h3>
-        <p class="section-desc">وجّه كاميرا الموبايل على QR الحساب الموحّد لفتح تقرير ولي الأمر.</p>
+        <p class="section-desc">وجّه الكاميرا على QR الحساب الموحّد أو اختر صورة الباركود من معرض الهاتف.</p>
       </div>
       <button class="small-btn danger" type="button" onclick="closeParentQrScanner()">إغلاق</button>
     </div>
     <div id="parentQrReader" class="parent-qr-reader-v38"></div>
-    <p class="section-desc">لو الكاميرا لم تعمل، استخدم إدخال الكود اليدوي بالأعلى.</p>
+    <div class="qr-source-actions"><button class="btn ghost small" type="button" onclick="document.getElementById('parentQrImageInput')?.click()"><span data-icon="image"></span> اختيار صورة QR من المعرض</button></div>
+    <input id="parentQrImageInput" type="file" accept="image/*" hidden onchange="scanParentQrImage(event)">
+    <p class="section-desc">يمكن استخدام الكاميرا أو صورة محفوظة أو إدخال الكود يدويًا.</p>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -99,11 +102,11 @@
 <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
-<script defer src="assets/firebase-config.js?v=57.1.0"></script>
-<script defer src="assets/firebase-sync.js?v=57.1.0"></script>
-<script defer src="assets/vendor/html5-qrcode-2.3.8.min.js?v=57.1.0"></script>
-<script defer src="assets/app.js?v=57.1.0"></script>
-<script defer src="assets/v53-upgrades.js?v=57.1.0"></script>
-<script defer src="assets/v56-fixes.js?v=57.1.0"></script>
+<script defer src="assets/firebase-config.js?v=58.0.0"></script>
+<script defer src="assets/firebase-sync.js?v=58.0.0"></script>
+<script defer src="assets/vendor/html5-qrcode-2.3.8.min.js?v=58.0.0"></script>
+<script defer src="assets/app.js?v=58.0.0"></script>
+<script defer src="assets/v53-upgrades.js?v=58.0.0"></script>
+<script defer src="assets/v56-fixes.js?v=58.0.0"></script>
 </body>
 </html>

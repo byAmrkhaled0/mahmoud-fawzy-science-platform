@@ -11,6 +11,15 @@
   const normalizeDigits=value=>String(value||'').replace(/[٠-٩]/g,digit=>String(digit.charCodeAt(0)-1632)).replace(/[۰-۹]/g,digit=>String(digit.charCodeAt(0)-1776));
   const digits=value=>normalizeDigits(value).replace(/\D/g,'');
   const normalizeCode=value=>normalizeDigits(value).trim().toUpperCase().replace(/\s+/g,'');
+  const normalizeStudentName=value=>String(value||'').normalize('NFKC').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g,'').replace(/\u0640/g,'').replace(/[إأآٱ]/g,'ا').replace(/ى/g,'ي').replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim().toLocaleLowerCase('ar');
+  const hasAtLeastThreeNameParts=value=>normalizeStudentName(value).split(' ').filter(Boolean).length>=3;
+  const studentNameIdentity=async value=>{
+    const normalizedName=normalizeStudentName(value);
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(normalizedName));
+    const nameKey=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('').slice(0,40);
+    return {normalizedName,nameKey};
+  };
+  const duplicateStudentNameError=()=>Object.assign(new Error('هذا الطالب مسجل بالفعل على المنصة. استخدم الكود السابق أو حدّث بياناته بدل تسجيل حساب جديد.'),{code:'functions/already-exists'});
   const serverTime=()=>firebase.firestore.FieldValue.serverTimestamp();
   const nowIso=()=>new Date().toISOString();
 
@@ -284,12 +293,35 @@
 
     async function createStudentAccessDirect(student){
       const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');
+      const name=String(student?.studentName||student?.name||'').replace(/\s+/g,' ').trim();
+      if(!hasAtLeastThreeNameParts(name))throw Object.assign(new Error('اكتب اسم الطالب ثلاثيًا على الأقل، وإذا تكرر الاسم الثلاثي اكتب الاسم الرباعي.'),{code:'functions/invalid-argument'});
+      const identity=await studentNameIdentity(name);
+      const [claimSnap,keyedStudents,keyedBookings]=await Promise.all([
+        db.collection('_student_name_claims').doc(identity.nameKey).get(),
+        db.collection('students').where('nameKey','==',identity.nameKey).limit(2).get(),
+        db.collection('bookings').where('nameKey','==',identity.nameKey).limit(2).get()
+      ]);
+      if(claimSnap.exists||!keyedBookings.empty||keyedStudents.docs.some(doc=>doc.data().active!==false))throw duplicateStudentNameError();
+      const [legacyStudents,legacyBookings]=await Promise.all([
+        db.collection('students').limit(2000).get(),
+        db.collection('bookings').limit(2000).get()
+      ]);
+      if(legacyStudents.docs.some(doc=>doc.data().active!==false&&normalizeStudentName(doc.data().studentName||doc.data().name)===identity.normalizedName)||legacyBookings.docs.some(doc=>normalizeStudentName(doc.data().studentName||doc.data().name)===identity.normalizedName))throw duplicateStudentNameError();
       let studentCode='';
-      for(let i=0;i<12&&!studentCode;i+=1){const code=randomNumericAccessCode();const [studentPortal,parentPortal,booking]=await Promise.all([db.collection('student_portal').doc(code).get(),db.collection('parent_portal').doc(code).get(),db.collection('bookings').doc(code).get()]);if(!studentPortal.exists&&!parentPortal.exists&&!booking.exists)studentCode=code;}
+      for(let i=0;i<12&&!studentCode;i+=1){const code=randomNumericAccessCode();const [studentRecord,studentPortal,parentPortal,booking]=await Promise.all([db.collection('students').doc(code).get(),db.collection('student_portal').doc(code).get(),db.collection('parent_portal').doc(code).get(),db.collection('bookings').doc(code).get()]);if(!studentRecord.exists&&!studentPortal.exists&&!parentPortal.exists&&!booking.exists)studentCode=code;}
       const parentCode=studentCode;
       if(!studentCode)throw new Error('تعذر إنشاء كود موحد جديد');
-      const source=normalizedStudent({...student,studentCode,code:studentCode,parentCode,active:student?.active!==false});
-      const ops=[];pushStudentOps(ops,source);await commitOperations(ops);return {...studentProfile(source),studentCode,code:studentCode,parentCode};
+      const source=normalizedStudent({...student,name,studentName:name,nameKey:identity.nameKey,normalizedName:identity.normalizedName,studentCode,code:studentCode,parentCode,active:student?.active!==false});
+      const body=studentProfile(source),id=cleanDocId(studentCode),claimRef=db.collection('_student_name_claims').doc(identity.nameKey);
+      await db.runTransaction(async tx=>{
+        const claim=await tx.get(claimRef);if(claim.exists)throw duplicateStudentNameError();
+        tx.set(db.collection('students').doc(id),{...body,updatedAt:serverTime()});
+        tx.set(db.collection('student_portal').doc(id),{...body,updatedAt:serverTime()});
+        tx.set(db.collection('parent_portal').doc(id),{...body,parentCode,updatedAt:serverTime()});
+        tx.set(db.collection('payments').doc(id),{studentId:id,studentCode,studentName:name,grade:body.grade,group:body.group,academicYear:body.academicYear,term:body.term,paid:body.paid,paymentDate:body.paymentDate||'',updatedAt:serverTime()});
+        tx.set(claimRef,{nameKey:identity.nameKey,normalizedName:identity.normalizedName,studentCode,source:'staff-direct',status:'active',createdAt:serverTime(),updatedAt:serverTime()});
+      });
+      return {...body,studentCode,code:studentCode,parentCode};
     }
 
     async function upsertAttendance(record){

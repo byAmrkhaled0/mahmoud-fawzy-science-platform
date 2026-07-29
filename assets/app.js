@@ -11,7 +11,7 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
-var MF_ASSET_VERSION = '57.1.0';
+var MF_ASSET_VERSION = '58.0.0';
 var mfLazyScriptPromises = Object.create(null);
 
 function loadLazyScript(key, source, readyCheck){
@@ -78,7 +78,7 @@ var appDataLoadFailed = false;
 function iconNameToKey(name){return String(name||'').replace(/-([a-z])/g,(_,c)=>c.toUpperCase());}
 function hydrateIcons(){document.querySelectorAll('[data-icon]').forEach(el=>{const key=iconNameToKey(el.dataset.icon); if(icons[key]) el.innerHTML=icons[key];});}
 function toast(msg){const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800);}
-function firebaseFriendlyError(err,fallback){const raw=`${err?.code||''} ${err?.message||''}`;if(/functions\/not-found|function.*unavailable|service.*unavailable/i.test(raw))return 'الخدمة غير مفعّلة حاليًا. تواصل مع المدرس أو حاول لاحقًا.';if(/resource-exhausted/i.test(raw))return 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.';if(/failed-precondition/i.test(raw))return raw.split(':').pop().trim()||'الاختيار لم يعد متاحًا. حدّث الصفحة وحاول مرة أخرى.';if(/invalid-argument/i.test(raw)){const message=raw.split(':').pop().trim();return /firebase|firestore|function|permission|internal/i.test(message)?(fallback||'تعذر إتمام الطلب. راجع البيانات وحاول مرة أخرى.'):message;}if(/deadline-exceeded/i.test(raw))return 'انتهى وقت الامتحان.';if(/already-exists/i.test(raw))return 'تم تسليم الامتحان بالفعل.';if(/permission-denied|unauthenticated/i.test(raw))return 'لا يمكن تنفيذ الطلب حاليًا. حدّث الصفحة ثم حاول مرة أخرى.';if(/unavailable|network|internal|fetch|offline|timeout/i.test(raw))return 'تعذر الاتصال بالخدمة. تحقق من الإنترنت وحاول مرة أخرى.';if(/not-found/i.test(raw))return 'الكود غير صحيح أو غير موجود.';return fallback||'حدث خطأ غير متوقع.';}
+function firebaseFriendlyError(err,fallback){const raw=`${err?.code||''} ${err?.message||''}`;if(/functions\/not-found|function.*unavailable|service.*unavailable/i.test(raw))return 'الخدمة غير مفعّلة حاليًا. تواصل مع المدرس أو حاول لاحقًا.';if(/resource-exhausted/i.test(raw))return 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.';if(/failed-precondition/i.test(raw))return raw.split(':').pop().trim()||'الاختيار لم يعد متاحًا. حدّث الصفحة وحاول مرة أخرى.';if(/invalid-argument/i.test(raw)){const message=raw.split(':').pop().trim();return /firebase|firestore|function|permission|internal/i.test(message)?(fallback||'تعذر إتمام الطلب. راجع البيانات وحاول مرة أخرى.'):message;}if(/deadline-exceeded/i.test(raw))return 'انتهى وقت الامتحان.';if(/already-exists/i.test(raw))return /طالب|مسجل بالفعل/i.test(raw)?'هذا الطالب مسجل بالفعل على المنصة. استخدم الكود السابق أو تواصل مع مستر محمود.':'تم تسليم الامتحان بالفعل.';if(/permission-denied|unauthenticated/i.test(raw))return 'لا يمكن تنفيذ الطلب حاليًا. حدّث الصفحة ثم حاول مرة أخرى.';if(/unavailable|network|internal|fetch|offline|timeout/i.test(raw))return 'تعذر الاتصال بالخدمة. تحقق من الإنترنت وحاول مرة أخرى.';if(/not-found/i.test(raw))return 'الكود غير صحيح أو غير موجود.';return fallback||'حدث خطأ غير متوقع.';}
 function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 function toEnglishDigits(v){return String(v||'').replace(/[٠-٩]/g,digit=>String(digit.charCodeAt(0)-1632)).replace(/[۰-۹]/g,digit=>String(digit.charCodeAt(0)-1776));}
 function normalizeText(v){return toEnglishDigits(v).trim().toLowerCase().replace(/\s+/g,' ');}
@@ -642,12 +642,25 @@ window.printParentReport = function(){
   setTimeout(()=>{window.print();setTimeout(cleanup,1500);},50);
 };
 
+function parseUnifiedPortalQr(rawValue){
+  const raw=toEnglishDigits(String(rawValue||'')).trim();if(!raw)return '';
+  let code='';
+  try{const url=new URL(raw,location.href);code=toEnglishDigits(url.searchParams.get('code')||'').trim().toUpperCase();}catch(error){}
+  if(!code){const match=raw.match(/^(?:STUDENT|PARENT|طالب|ولي\s*الأمر)[:\s-]+([A-Z0-9_-]{6,40})$/i);code=match?match[1]:raw.toUpperCase().replace(/\s+/g,'');}
+  return /^[A-Z0-9_-]{6,40}$/.test(code)?code:'';
+}
+
+async function parentQrDecoded(rawValue){
+  const code=parseUnifiedPortalQr(rawValue);if(!code)throw new Error('unknown-qr');
+  await closeParentQrScanner();await showParentReportByCode(code);
+}
+
 window.openParentQrScanner = async function(){
   const modal=document.getElementById('parentQrModal'); const reader=document.getElementById('parentQrReader');
   if(!modal || !reader) return;
   modal.hidden=false; reader.innerHTML='<p class="section-desc">جاري تجهيز الكاميرا…</p>';
   try{
-    const onDecoded = async decoded => { await closeParentQrScanner(); await showParentReportByCode(String(decoded||'').trim()); };
+    const onDecoded = async decoded => {try{await parentQrDecoded(decoded);}catch(error){toast('صورة QR غير معروفة أو غير واضحة.');}};
     await ensureQrScannerLibrary();
     reader.innerHTML='';
     if(typeof window.Html5Qrcode==='function'){
@@ -674,6 +687,20 @@ window.openParentQrScanner = async function(){
   }
 };
 
+window.scanParentQrImage=async function(event){
+  const input=event?.target,file=input?.files?.[0],modal=document.getElementById('parentQrModal'),reader=document.getElementById('parentQrReader');
+  if(!file||!modal||!reader)return;
+  try{
+    await window.closeParentQrScanner();modal.hidden=false;await ensureQrScannerLibrary();
+    if(typeof window.Html5Qrcode!=='function')throw new Error('scanner-unavailable');
+    reader.innerHTML='';parentQrScanner=new window.Html5Qrcode('parentQrReader');
+    await parentQrDecoded(await parentQrScanner.scanFile(file,true));
+  }catch(error){
+    reader.innerHTML='<p class="qr-file-status">تعذر قراءة QR من الصورة. اختر صورة واضحة يظهر فيها الباركود كاملًا.</p>';
+    toast('لم يتم العثور على QR صالح داخل الصورة');
+  }finally{if(input)input.value='';}
+};
+
 window.closeParentQrScanner = async function(){
   try{ if(parentQrScanner){ await parentQrScanner.stop(); parentQrScanner.clear(); parentQrScanner=null; } }catch(e){}
   const v=document.getElementById('parentQrVideo'); if(v?.srcObject) v.srcObject.getTracks().forEach(t=>t.stop());
@@ -689,6 +716,8 @@ function setupBooking(){
       e.preventDefault();
       const button=form.querySelector('button[type="submit"]');
       const b=Object.fromEntries(new FormData(form).entries());
+      b.name=String(b.name||'').replace(/\s+/g,' ').trim();
+      if(b.name.split(/\s+/).filter(Boolean).length<3)return toast('اكتب اسم الطالب ثلاثيًا على الأقل، وإذا تكرر الاسم الثلاثي اكتب الاسم الرباعي.');
       const selectedSchedule=document.getElementById('bookingGroup')?.selectedOptions?.[0];
       b.studentPhone=phoneDigits(b.studentPhone);
       b.parentPhone=phoneDigits(b.parentPhone);
@@ -917,13 +946,19 @@ async function submitExamAttempt(sessionId,st,answers){
 
 function setupContact(){const a=document.getElementById('teacherWhatsapp'); if(a) a.href=whatsappLink(appData.settings?.teacherPhone||TEACHER_WHATSAPP,'مرحبًا مستر محمود، أريد الاستفسار عن الحجز.');}
 function setupAdminLink(){document.querySelectorAll('a[href="teacher-login.html"]').forEach(a=>a.remove());}
-var studentQrScanner=null,studentQrStream=null,studentQrDecoded=false;
+var studentQrScanner=null,studentQrStream=null,studentQrScanBusy=false;
+async function handleStudentQrDecoded(rawValue){
+  if(studentQrScanBusy)return;studentQrScanBusy=true;
+  const code=parseUnifiedPortalQr(rawValue),input=document.getElementById('studentQuery'),form=document.getElementById('studentSearchForm');
+  if(!code){await window.stopStudentScanner();studentQrScanBusy=false;toast('هذا الـ QR غير معروف. استخدم QR الطالب الصحيح.');return;}
+  if(input)input.value=code;await window.stopStudentScanner();studentQrScanBusy=false;form?.requestSubmit();
+}
 window.startStudentScanner=async function(){
   const box=document.getElementById('qrScannerBox'),reader=document.getElementById('studentQrReader'),video=document.getElementById('qrScannerVideo');
   if(!box||!reader||!video)return;
   if(!window.isSecureContext&&!/^(localhost|127\.0\.0\.1)$/.test(location.hostname))return toast('الكاميرا تحتاج فتح الموقع من رابط HTTPS الآمن');
-  await window.stopStudentScanner();studentQrDecoded=false;box.hidden=false;reader.innerHTML='<p class="section-desc">جاري تجهيز الكاميرا…</p>';
-  const decoded=async value=>{if(studentQrDecoded)return;studentQrDecoded=true;const input=document.getElementById('studentQuery');if(input)input.value=toEnglishDigits(value).trim().toUpperCase();await window.stopStudentScanner();document.getElementById('studentSearchForm')?.requestSubmit();};
+  await window.stopStudentScanner();studentQrScanBusy=false;box.hidden=false;reader.innerHTML='<p class="section-desc">جاري تجهيز الكاميرا…</p>';
+  const decoded=value=>handleStudentQrDecoded(value);
   try{
     await ensureQrScannerLibrary();
     reader.innerHTML='';
@@ -936,11 +971,25 @@ window.startStudentScanner=async function(){
     reader.hidden=true;video.hidden=false;studentQrStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});video.srcObject=studentQrStream;await video.play();
     if(!('BarcodeDetector' in window))throw new Error('scanner-unavailable');
     const detector=new BarcodeDetector({formats:['qr_code']});
-    const loop=async()=>{if(box.hidden||studentQrDecoded)return;const codes=await detector.detect(video).catch(()=>[]);if(codes.length)return decoded(codes[0].rawValue);setTimeout(loop,250);};
+    const loop=async()=>{if(box.hidden||studentQrScanBusy)return;const codes=await detector.detect(video).catch(()=>[]);if(codes.length)return decoded(codes[0].rawValue);setTimeout(loop,250);};
     toast('وجّه الكاميرا على QR الطالب');loop();
   }catch(error){
     await window.stopStudentScanner();box.hidden=false;reader.hidden=false;reader.innerHTML='<p class="section-desc">تعذر تشغيل ماسح QR. اسمح للمتصفح باستخدام الكاميرا أو اكتب الكود يدويًا.</p>';toast('تعذر فتح الكاميرا أو قراءة QR');
   }
+};
+window.scanStudentQrImage=async function(event){
+  const input=event?.target,file=input?.files?.[0],box=document.getElementById('qrScannerBox'),reader=document.getElementById('studentQrReader');
+  if(!file||!box||!reader)return;
+  try{
+    await window.stopStudentScanner();studentQrScanBusy=false;box.hidden=false;reader.hidden=false;await ensureQrScannerLibrary();
+    if(typeof window.Html5Qrcode!=='function')throw new Error('scanner-unavailable');
+    reader.innerHTML='';studentQrScanner=new window.Html5Qrcode('studentQrReader');
+    await handleStudentQrDecoded(await studentQrScanner.scanFile(file,true));
+  }catch(error){
+    studentQrScanBusy=false;box.hidden=false;reader.hidden=false;
+    reader.innerHTML='<p class="qr-file-status">تعذر قراءة QR من الصورة. اختر صورة واضحة يظهر فيها الباركود كاملًا.</p>';
+    toast('لم يتم العثور على QR صالح داخل الصورة');
+  }finally{if(input)input.value='';}
 };
 window.stopStudentScanner=async function(){
   const box=document.getElementById('qrScannerBox'),video=document.getElementById('qrScannerVideo'),reader=document.getElementById('studentQrReader');
@@ -1012,10 +1061,15 @@ function registerServiceWorker(){
   navigator.serviceWorker.addEventListener('controllerchange',()=>{try{const key=`mf_sw_reloaded_${MF_ASSET_VERSION.replaceAll('.','_')}`;if(sessionStorage.getItem(key))return;sessionStorage.setItem(key,'1');location.reload();}catch(_){ }});
 }
 function setupPWAInstall(){
-  const button=document.getElementById('installAppButton');if(!button)return;let installPrompt=null;
+  let button=document.getElementById('installAppButton');
+  if(!button){const actions=document.querySelector('.site-header .header-actions');if(actions){actions.insertAdjacentHTML('afterbegin','<button class="btn ghost pwa-global-install" id="installAppButton" type="button" hidden><span data-icon="external-link"></span> تثبيت</button>');button=document.getElementById('installAppButton');hydrateIcons();}}
+  if(!button)return;let installPrompt=null;
   window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;button.hidden=false;});
   button.addEventListener('click',async()=>{if(!installPrompt)return toast('يمكنك تثبيت الموقع من قائمة المتصفح');installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;button.hidden=true;});
   window.addEventListener('appinstalled',()=>{button.hidden=true;toast('تم تثبيت المنصة على الهاتف');});
+  let status=document.getElementById('networkStatusPill');if(!status){status=document.createElement('div');status.id='networkStatusPill';status.className='network-status-pill';document.body.appendChild(status);}
+  const paint=()=>{status.textContent=navigator.onLine?'متصل بالإنترنت':'وضع بدون إنترنت';status.classList.toggle('offline',!navigator.onLine);};
+  addEventListener('online',paint);addEventListener('offline',paint);paint();
 }
 function setupClientErrorReporting(){window.addEventListener('error',event=>{window.MFCloud?.reportClientError?.({message:String(event.message||'خطأ JavaScript'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});window.addEventListener('unhandledrejection',event=>{window.MFCloud?.reportClientError?.({message:String(event.reason?.message||event.reason||'Promise rejection'),page:location.href,userAgent:navigator.userAgent}).catch(()=>{});});}
 function init(){setupTheme();setupUnifiedPublicChrome();setupActiveNavigation(); bindLocalizedDigits(); registerServiceWorker(); setupPWAInstall(); setupClientErrorReporting(); hydrateIcons(); fillSelects(); setupBooking(); setupStudent(); setupParent(); setupExamsPage(); setupReviews(); setupContact(); setupAdminLink(); setupLeaderboardGradePicker(); renderHomeCounts(); renderPublicLeaderboard(); renderReviews(); renderUnifiedResourcesPage(); initFirebaseData();}

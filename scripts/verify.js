@@ -11,7 +11,8 @@ const requiredFiles = [
   'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v55.css', 'assets/v56-fixes.js', 'assets/v56.css', 'assets/teacher.webp',
   'assets/firebase-sync.js', 'assets/firebase-config.js', 'assets/icon-maskable-512.png',
   'firestore.rules', 'storage.rules', 'firestore.indexes.json', 'firebase.json',
-  'functions/index.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html'
+  'functions/index.js', 'functions/lib/student-name.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html',
+  'assets/v58.css'
 ];
 
 const failures = [];
@@ -120,6 +121,8 @@ for (const name of mfCloudUses) {
 }
 if (!functionsSource.includes('exports.scheduledPlatformBackup = onSchedule')) fail('Scheduled daily backup export is missing');
 if (!functionsSource.includes('exports.notifyStaffOnBookingCreated = onDocumentCreated')) fail('Asynchronous booking notification trigger is missing');
+if (!functionsSource.includes("db.collection('_student_name_claims')") || !functionsSource.includes('batch.create(nameIdentity.claimRef')) fail('Atomic student-name claim protection is missing');
+if (!functionsSource.includes('hasAtLeastThreeNameParts') || !firebaseSyncSource.includes('hasAtLeastThreeNameParts')) fail('Triple-name validation is not enforced in both server and direct staff paths');
 if (!functionsSource.includes("db.collection('_booking_requests')") || !functionsSource.includes('requestId')) fail('Idempotent booking request protection is missing');
 if (!functionsSource.includes("db.collection('_homework_upload_tokens')") || !read('storage.rules').includes('_homework_upload_tokens')) fail('One-time homework upload authorization is missing');
 if (/questions:\s*questions\.map\(q\s*=>\s*\(\{[^}]*answer/s.test(functionsSource)) fail('startExam response appears to expose answers');
@@ -170,6 +173,7 @@ if (!rules.includes('match /reviews/{reviewId}') || !rules.includes('allow creat
 if (!rules.includes('match /homework_submissions/{id}') || !rules.includes("request.resource.data.method == 'teacher_class_check'") || !rules.includes('validCode(request.resource.data.studentCode)')) fail('Homework class-check creation is not narrowly restricted to signed-in staff');
 if (!rules.includes('match /student_attempts/{studentCode}') || !rules.includes('allow create, update, delete: if isTeacher();')) fail('Safe student attempt correction, migration, and deletion rules are incomplete');
 if (!rules.includes('request.resource.data.parentCode == resource.data.parentCode')) fail('Assistant code immutability rule is missing');
+if (!rules.includes('match /_student_name_claims/{nameKey}') || !rules.includes('allow update: if false;')) fail('Student-name claim rules are incomplete');
 if (!failures.some(x => x.includes('rules are not') || x.includes('direct creation') || x.includes('metadata creation') || x.includes('immutability'))) {
   ok('Firestore security and assistant-permission checks passed');
 }
@@ -177,9 +181,10 @@ if (!failures.some(x => x.includes('rules are not') || x.includes('direct creati
 const manifest = JSON.parse(read('site.webmanifest'));
 if (manifest.display !== 'standalone' || manifest.scope !== '/' || !Array.isArray(manifest.icons)) fail('PWA manifest is incomplete');
 if (!manifest.icons.some(icon => String(icon.purpose || '').includes('maskable') && icon.sizes === '512x512')) fail('Maskable PWA icon is missing');
+if (manifest.launch_handler?.client_mode !== 'navigate-existing' || manifest.prefer_related_applications !== false) fail('Modern mobile PWA launch handling is incomplete');
 const sw = read('service-worker.js');
 const appShellSource = sw.slice(0,sw.indexOf('];')+2);
-if (!/mf-science-v\d+-production/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png')) fail('Service worker app shell is incomplete');
+if (!/mf-science-v\d+[^"']*/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png') || !sw.includes('/assets/v58.css')) fail('Service worker app shell is incomplete');
 if (/assets\/vendor|assets\/admin\.js|teacher-login\.html/.test(appShellSource) || !sw.includes('event.waitUntil(network.catch')) fail('Large admin assets are still precached or repeat-visit caching is missing');
 if (!read('index.html').includes('<script defer src="https://www.gstatic.com/firebasejs/')) fail('Firebase scripts are not downloaded in parallel with deferred execution');
 const upgrade = read('assets/v53-upgrades.js');
@@ -192,6 +197,9 @@ if (!functionsSource.includes("rateLimit('public-leaderboard-ip', requestIp(requ
 const attendanceRecitationHomeworkOnlyScore = Math.round(100 * .30 + 0 * .40 + 100 * .15 + 100 * .15);
 if (attendanceRecitationHomeworkOnlyScore !== 60 || !functionsSource.includes(".filter(x=>x.name&&x.activity>0)")) fail('Active student without an exam grade would not enter the monthly leaderboard');
 if (!read('assets/firebase-sync.js').includes("markLeaderboardDirty('attendance')") || !read('assets/firebase-sync.js').includes('FieldValue.increment(1)')) fail('Staff activity does not invalidate the public leaderboard');
+if (!read('student.html').includes('studentQrImageInput') || !read('parent.html').includes('parentQrImageInput') || !appSourceCode.includes('scanStudentQrImage') || !appSourceCode.includes('scanParentQrImage') || !appSourceCode.includes('.scanFile(file,true)')) fail('QR image gallery scanning is incomplete');
+if (!adminSourceCode.includes('data-question-type') || !adminSourceCode.includes("type==='essay'") || !adminSourceCode.includes('toggleExamQuestionType')) fail('Mixed MCQ and essay exam builder is incomplete');
+for (const page of ['index.html','student.html','parent.html','exams.html','teacher-login.html']) if (!read(page).includes('assets/v58.css')) fail(`V58 design is missing from ${page}`);
 if (!rules.includes('match /_system/leaderboard') || !rules.includes('allow create, update: if isStaff();')) fail('Leaderboard invalidation marker rules are missing');
 if (!read('index.html').includes('refreshLeaderboardButton') || !read('assets/app.js').includes('window.refreshPublicLeaderboard')) fail('Public leaderboard refresh control is missing');
 if (!read('index.html').includes('bookingGroupSearch') || !read('assets/app.js').includes('لا توجد مجموعة مطابقة للبحث')) fail('Booking group search is incomplete');
