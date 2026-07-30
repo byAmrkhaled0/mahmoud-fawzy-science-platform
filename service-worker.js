@@ -1,12 +1,11 @@
-const CACHE_NAME = "mf-science-v5800-portals-qr-pwa";
+const CACHE_NAME = "mf-science-v5921-windows-deploy-fix";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
-  "/terms.html", "/offline.html", "/assets/site.css", "/assets/v55.css",
-  "/assets/v56.css", "/assets/v58.css", "/assets/site.bundle.css", "/assets/public.bundle.js",
-  "/assets/admin.bundle.js", "/assets/app.js", "/assets/firebase-sync.js",
-  "/assets/firebase-config.js", "/assets/v53-upgrades.js",
-  "/assets/v56-fixes.js", "/assets/logo-icon.svg", "/assets/icon-192.png",
+  "/terms.html", "/offline.html", "/assets/site.bundle.css",
+  "/assets/public.bundle.js", "/assets/firebase-sync.js",
+  "/assets/firebase-config.js",
+  "/assets/logo-icon.svg", "/assets/icon-192.png",
   "/assets/icon-512.png", "/assets/icon-maskable-512.png",
   "/assets/teacher.webp", "/site.webmanifest"
 ];

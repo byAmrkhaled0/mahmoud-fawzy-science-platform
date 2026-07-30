@@ -76,8 +76,14 @@ service cloud.firestore {
     match /materials/{id} { allow read: if true; allow write: if isTeacher(); }
     match /questions/{id} { allow read: if true; allow write: if isTeacher(); }
     match /groups/{id} { allow read: if true; allow write: if isTeacher(); }
-    match /assignments/{id} { allow read: if true; allow write: if isTeacher(); }
+    // Homework is delivered to students only through the callable portal, which
+    // enforces grade/group targeting and the scheduled publish time.
+    match /assignments/{id} { allow read, write: if isTeacher(); }
     match /exams/{id} { allow read, write: if isTeacher(); }
+    match /student_transfer_requests/{id} {
+      allow read, update, delete: if isTeacher();
+      allow create: if false;
+    }
 
     match /exam_sessions/{id} { allow read, write: if false; }
     match /exam_locks/{id} { allow read, write: if false; }

@@ -72,7 +72,9 @@
       listAutomaticBackups:callable('listAutomaticBackups'),
       getBackupDownloadUrl:callable('getBackupDownloadUrl'),
       restoreAutomaticBackup:callable('restoreAutomaticBackup'),
-      deleteStudentSafely:callable('deleteStudentSafely')
+      deleteStudentSafely:callable('deleteStudentSafely'),
+      createStudentTransferRequest:callable('createStudentTransferRequest'),
+      reviewStudentTransferRequest:callable('reviewStudentTransferRequest')
     };
 
     function randomCode(prefix){
@@ -98,7 +100,7 @@
         ...s,id:code,code,studentCode:code,parentCode:normalizeCode(s.parentCode||''),
         name:s.studentName||s.name||'',studentName:s.studentName||s.name||'',
         studentPhone:digits(s.studentPhone),parentPhone:digits(s.parentPhone),grade:s.grade||'',month:s.month||'',group:s.group||'',
-        academicYear:s.academicYear||'',term:s.term||'',paid:s.paid===true,paymentDate:s.paymentDate||'',notes:s.notes||'',active:s.active!==false,
+        academicYear:s.academicYear||'',term:s.term||'',scheduleId:s.scheduleId||'',scheduleDays:s.scheduleDays||'',scheduleStartTime:s.scheduleStartTime||'',scheduleEndTime:s.scheduleEndTime||'',paid:s.paid===true,paymentDate:s.paymentDate||'',notes:s.notes||'',active:s.active!==false,
         attendance:Array.isArray(s.attendance)?s.attendance:[],grades:Array.isArray(s.grades)?s.grades:[],
         homeworks:Array.isArray(s.homeworks)?s.homeworks:[],recitations:Array.isArray(s.recitations)?s.recitations:[]
       };
@@ -117,7 +119,7 @@
       return {
         studentCode:s.studentCode,code:s.studentCode,parentCode:s.parentCode,name:s.name,studentName:s.studentName,
         studentPhone:s.studentPhone,parentPhone:s.parentPhone,grade:s.grade,month:s.month,group:s.group,
-        academicYear:s.academicYear,term:s.term,paid:s.paid,paymentDate:s.paymentDate,notes:s.notes,active:s.active
+        academicYear:s.academicYear,term:s.term,scheduleId:s.scheduleId,scheduleDays:s.scheduleDays,scheduleStartTime:s.scheduleStartTime,scheduleEndTime:s.scheduleEndTime,paid:s.paid,paymentDate:s.paymentDate,notes:s.notes,active:s.active
       };
     }
 
@@ -266,14 +268,15 @@
     }
 
     async function loadStaffRecordCollections(){
-      const [attempts,grades,attendance,recitations,homeworks]=await Promise.all([
+      const [attempts,grades,attendance,recitations,homeworks,studentTransferRequests]=await Promise.all([
         getDocs('exam_attempts',3000).catch(()=>[]),getDocs('grades',5000).catch(()=>[]),getDocs('attendance',5000).catch(()=>[]),
-        getDocs('recitations',3000).catch(()=>[]),getDocs('homework_submissions',3000).catch(()=>[])
+        getDocs('recitations',3000).catch(()=>[]),getDocs('homework_submissions',3000).catch(()=>[]),
+        getDocs('student_transfer_requests',1000).catch(()=>[])
       ]);
       attendance.forEach(item=>seedFingerprint('attendance',cleanDocId(item.id),item));
       grades.forEach(item=>seedFingerprint('grades',cleanDocId(item.id),item));
       recitations.forEach(item=>seedFingerprint('recitations',cleanDocId(item.id),item));
-      return {attempts,grades,attendance,recitations,homeworks};
+      return {attempts,grades,attendance,recitations,homeworks,studentTransferRequests};
     }
 
     function mergeStaffRecords(core,records){
@@ -284,7 +287,13 @@
       records.recitations.forEach(row=>{const st=ensure(row.studentCode);if(st)st.recitations.push(row);});
       records.homeworks.forEach(row=>{const st=ensure(row.studentCode);if(st)st.homeworks.push(row);});
       normalized.forEach(st=>{st.attendance.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));st.grades.sort((a,b)=>String(a.date||a.submittedAt||'').localeCompare(String(b.date||b.submittedAt||'')));});
-      return {...core,students:normalized,examAttempts:records.attempts,grades:records.grades};
+      return {
+        ...core,
+        students:normalized,
+        examAttempts:records.attempts,
+        grades:records.grades,
+        studentTransferRequests:records.studentTransferRequests
+      };
     }
 
     async function loadStaffCollections(options={}){const core=await loadStaffCoreCollections();if(options.fast===true)return core;return mergeStaffRecords(core,await loadStaffRecordCollections());}
@@ -507,6 +516,8 @@
       getPublicLeaderboard:grade=>calls.getPublicLeaderboard?calls.getPublicLeaderboard({grade:String(grade||'').trim()}):Promise.resolve([]),
       getParentStudent:code=>{if(!calls.getPortalStudent)throw new Error('Secure parent portal function is unavailable');return retryTransient(()=>calls.getPortalStudent({code:normalizeCode(code),mode:'parent'}),1);},
       uploadHomework:async(file,studentCode,assignmentId='')=>{const normalized=normalizeCode(studentCode);if(!calls.prepareHomeworkUpload||!calls.registerHomeworkSubmission)throw new Error('Secure homework function is unavailable');const permit=await calls.prepareHomeworkUpload({studentCode:normalized,assignmentId,fileName:file.name,size:file.size,contentType:file.type});const uploaded=await upload(file,`homework/${cleanDocId(normalized)}/${permit.uploadId}`,permit.safeName,true);await calls.registerHomeworkSubmission({studentCode:normalized,assignmentId,uploadId:permit.uploadId,...uploaded,fileName:file.name});return uploaded;},
+      createStudentTransferRequest:async payload=>{if(!calls.createStudentTransferRequest)throw new Error('Student transfer service is unavailable');return calls.createStudentTransferRequest(payload);},
+      reviewStudentTransferRequest:async payload=>{if(!calls.reviewStudentTransferRequest)throw new Error('Student transfer review service is unavailable');return calls.reviewStudentTransferRequest(payload);},
       uploadAttachment:(file,folder)=>upload(file,folder||'teacher-uploads'),logActivity,
       reportClientError:payload=>calls.reportClientError?calls.reportClientError(payload):Promise.resolve(null),
       deleteDocument:async(collection,id)=>{if(collection&&id)await db.collection(collection).doc(cleanDocId(id)).delete();},

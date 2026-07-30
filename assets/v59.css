@@ -1,0 +1,221 @@
+/* V59 — center-only academic workflows */
+.booking-admin-filters,
+.absence-warning-filters,
+.student-request-filters {
+  display:grid;
+  grid-template-columns:minmax(210px,1.5fr) repeat(3,minmax(150px,1fr)) auto;
+  gap:12px;
+  align-items:end;
+}
+.booking-admin-filters label,
+.absence-warning-filters label,
+.student-request-filters label,
+.student-transfer-form label {
+  display:grid;
+  gap:7px;
+  min-width:0;
+}
+.booking-admin-filters label > span,
+.absence-warning-filters label > span,
+.student-request-filters label > span,
+.student-transfer-form label > span {
+  color:var(--muted);
+  font-size:.82rem;
+  font-weight:800;
+}
+.booking-filter-count {
+  display:grid;
+  align-content:center;
+  min-height:72px;
+}
+.booking-admin-results,
+.assignment-schedule-list { margin-top:16px; }
+.compact-booking-card {
+  display:grid;
+  grid-template-columns:minmax(230px,1.25fr) minmax(300px,1fr) auto;
+  gap:16px;
+  align-items:center;
+}
+.absence-warning-summary,
+.student-request-summary {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  margin:14px 0;
+}
+.absence-warning-summary article,
+.student-request-summary article {
+  display:grid;
+  gap:4px;
+  text-align:center;
+}
+.absence-warning-summary b,
+.student-request-summary b { font-size:1.7rem; }
+.absence-warning-list,
+.student-transfer-request-list { display:grid; gap:14px; }
+.absence-warning-card,
+.student-transfer-request-card { display:grid; gap:14px; }
+.absence-warning-card-head,
+.student-transfer-request-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.absence-warning-identity,
+.compact-student-identity {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.absence-warning-icon {
+  display:grid;
+  place-items:center;
+  width:42px;
+  height:42px;
+  border-radius:14px;
+  color:#b42318;
+  background:#fee4e2;
+}
+.absence-warning-meta,
+.student-transfer-contact-grid {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+}
+.absence-warning-meta span,
+.student-transfer-contact-grid span,
+.student-transfer-route > span {
+  display:grid;
+  gap:4px;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:color-mix(in srgb,var(--surface) 92%,var(--primary) 8%);
+}
+.absence-warning-meta small,
+.student-transfer-contact-grid small,
+.student-transfer-route small,
+.student-transfer-reason > small { color:var(--muted); }
+.absence-warning-dates { margin:0; color:var(--muted); }
+.absence-warning-actions,
+.student-transfer-actions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.absence-warning-total {
+  padding:8px 12px;
+  border-radius:999px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  font-weight:800;
+}
+.student-transfer-route {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  gap:10px;
+  align-items:center;
+}
+.student-transfer-route em {
+  color:var(--muted);
+  font-size:.82rem;
+  font-style:normal;
+}
+.student-transfer-reason {
+  padding:12px;
+  border-radius:12px;
+  background:var(--surface);
+}
+.student-transfer-reason p { margin:5px 0; }
+.student-transfer-form {
+  display:grid;
+  gap:14px;
+  max-width:700px;
+  padding:18px;
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:var(--surface);
+}
+.student-transfer-overview-card {
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  gap:14px;
+  align-items:center;
+  padding:16px;
+  border:1px solid color-mix(in srgb,var(--primary) 28%,var(--border));
+  border-radius:18px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 9%,var(--surface)),var(--surface));
+}
+.student-transfer-overview-card h3,
+.student-transfer-overview-card p { margin:3px 0; }
+.student-transfer-overview-card p,
+.student-transfer-overview-card small { color:var(--muted); }
+.student-transfer-overview-card .iconbox { flex:0 0 auto; }
+.student-transfer-status-card {
+  margin-bottom:14px;
+  padding:16px;
+  border:1px solid var(--border);
+  border-inline-start:5px solid #d97706;
+  border-radius:16px;
+  background:var(--surface);
+}
+.student-transfer-status-card.approved { border-inline-start-color:#15803d; }
+.student-transfer-status-card.rejected { border-inline-start-color:#b42318; }
+.student-transfer-status-card h4,
+.student-transfer-status-card p { margin:6px 0; }
+.badge.scheduled {
+  color:#1d4ed8;
+  background:#dbeafe;
+}
+.assignment-publish-note {
+  display:block;
+  margin-top:6px;
+  color:var(--muted);
+}
+.assignment-schedule-help {
+  color:var(--muted);
+  font-size:.78rem;
+}
+
+@media (max-width:1050px) {
+  .booking-admin-filters,
+  .absence-warning-filters,
+  .student-request-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .warning-search-field,
+  .student-request-search-field { grid-column:1 / -1; }
+  .compact-booking-card { grid-template-columns:1fr; }
+}
+
+@media (max-width:680px) {
+  .booking-admin-filters,
+  .absence-warning-filters,
+  .student-request-filters,
+  .absence-warning-summary,
+  .student-request-summary,
+  .absence-warning-meta,
+  .student-transfer-contact-grid { grid-template-columns:1fr; }
+  .booking-admin-filters label,
+  .absence-warning-filters label,
+  .student-request-filters label { width:100%; }
+  .booking-admin-filters input,
+  .booking-admin-filters select,
+  .absence-warning-filters input,
+  .absence-warning-filters select,
+  .student-request-filters input,
+  .student-request-filters select { width:100%; min-height:46px; }
+  .absence-warning-card-head,
+  .student-transfer-request-head { align-items:flex-start; }
+  .absence-warning-actions,
+  .student-transfer-actions,
+  .compact-booking-actions { display:grid; grid-template-columns:1fr; width:100%; }
+  .absence-warning-actions > *,
+  .student-transfer-actions > *,
+  .compact-booking-actions > * { width:100%; justify-content:center; }
+  .student-transfer-route { grid-template-columns:1fr; }
+  .student-transfer-route > [data-icon] { transform:rotate(-90deg); justify-self:center; }
+  .student-transfer-overview-card { grid-template-columns:auto minmax(0,1fr); }
+  .student-transfer-overview-card > button { grid-column:1 / -1; width:100%; justify-content:center; }
+  .student-tabbar { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}

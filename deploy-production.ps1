@@ -2,13 +2,13 @@ $ErrorActionPreference = "Stop"
 
 function Invoke-Checked {
   param(
-    [Parameter(Mandatory = $true)][string]$Command,
-    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [string[]]$ArgumentList = @()
   )
 
-  & $Command @Arguments
+  & $Executable @ArgumentList
   if ($LASTEXITCODE -ne 0) {
-    throw "Command failed with exit code ${LASTEXITCODE}: $Command $($Arguments -join ' ')"
+    throw "Command failed with exit code ${LASTEXITCODE}: $Executable $($ArgumentList -join ' ')"
   }
 }
 
@@ -16,21 +16,22 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 
 Write-Host "1/7 Verifying project..." -ForegroundColor Cyan
-Invoke-Checked npm test
+Invoke-Checked -Executable "npm" -ArgumentList @("test")
 
 Write-Host "2/7 Building static site..." -ForegroundColor Cyan
-Invoke-Checked npm run build
+Invoke-Checked -Executable "npm" -ArgumentList @("run", "build")
 
 Write-Host "3/7 Installing Firebase Functions dependencies..." -ForegroundColor Cyan
-Invoke-Checked npm config set registry https://registry.npmjs.org/
-Invoke-Checked npm --prefix functions ci --no-audit --no-fund
-Invoke-Checked npm --prefix functions ls firebase-functions firebase-admin
+Invoke-Checked -Executable "npm" -ArgumentList @("config", "set", "registry", "https://registry.npmjs.org/")
+Invoke-Checked -Executable "npm" -ArgumentList @("--prefix", "functions", "ci", "--no-audit", "--no-fund")
+Invoke-Checked -Executable "npm" -ArgumentList @("--prefix", "functions", "ls", "firebase-functions", "firebase-admin")
 
 Write-Host "4/7 Deploying Firebase Functions..." -ForegroundColor Cyan
-Invoke-Checked firebase deploy --only functions
+$env:FUNCTIONS_DISCOVERY_TIMEOUT = "60"
+Invoke-Checked -Executable "firebase" -ArgumentList @("deploy", "--only", "functions")
 
 Write-Host "5/7 Deploying Firebase rules and indexes..." -ForegroundColor Cyan
-Invoke-Checked firebase deploy --only firestore:rules,firestore:indexes,storage
+Invoke-Checked -Executable "firebase" -ArgumentList @("deploy", "--only", "firestore:rules,firestore:indexes,storage")
 
 Write-Host "6/7 Checking Git repository..." -ForegroundColor Cyan
 if (-not (Test-Path (Join-Path $ProjectRoot ".git"))) {
@@ -40,11 +41,11 @@ if (-not (Test-Path (Join-Path $ProjectRoot ".git"))) {
 }
 
 Write-Host "7/7 Pushing production source to GitHub..." -ForegroundColor Cyan
-Invoke-Checked git add -A
+Invoke-Checked -Executable "git" -ArgumentList @("add", "-A")
 $changes = git status --porcelain
 if ($changes) {
-  Invoke-Checked git commit -m "Stable production release V54"
-  Invoke-Checked git push origin main
+  Invoke-Checked -Executable "git" -ArgumentList @("commit", "-m", "Fix Windows production deploy V59.2.1")
+  Invoke-Checked -Executable "git" -ArgumentList @("push", "origin", "main")
 } else {
   Write-Host "No Git changes to push." -ForegroundColor Yellow
 }

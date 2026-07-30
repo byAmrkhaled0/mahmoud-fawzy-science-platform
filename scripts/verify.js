@@ -11,8 +11,8 @@ const requiredFiles = [
   'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v55.css', 'assets/v56-fixes.js', 'assets/v56.css', 'assets/teacher.webp',
   'assets/firebase-sync.js', 'assets/firebase-config.js', 'assets/icon-maskable-512.png',
   'firestore.rules', 'storage.rules', 'firestore.indexes.json', 'firebase.json',
-  'functions/index.js', 'functions/lib/student-name.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html',
-  'assets/v58.css'
+  'functions/index.js', 'functions/lib/student-name.js', 'functions/lib/assignment-schedule.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html',
+  'assets/v58.css', 'assets/v59.css', 'scripts/admin-academic-linking.test.js', 'scripts/assignment-schedule.test.js'
 ];
 
 const failures = [];
@@ -184,8 +184,8 @@ if (!manifest.icons.some(icon => String(icon.purpose || '').includes('maskable')
 if (manifest.launch_handler?.client_mode !== 'navigate-existing' || manifest.prefer_related_applications !== false) fail('Modern mobile PWA launch handling is incomplete');
 const sw = read('service-worker.js');
 const appShellSource = sw.slice(0,sw.indexOf('];')+2);
-if (!/mf-science-v\d+[^"']*/.test(sw) || !sw.includes('/assets/v53-upgrades.js') || !sw.includes('/assets/icon-maskable-512.png') || !sw.includes('/assets/v58.css')) fail('Service worker app shell is incomplete');
-if (/assets\/vendor|assets\/admin\.js|teacher-login\.html/.test(appShellSource) || !sw.includes('event.waitUntil(network.catch')) fail('Large admin assets are still precached or repeat-visit caching is missing');
+if (!/mf-science-v\d+[^"']*/.test(sw) || !sw.includes('/assets/site.bundle.css') || !sw.includes('/assets/public.bundle.js') || !sw.includes('/assets/icon-maskable-512.png')) fail('Service worker app shell is incomplete');
+if (/assets\/vendor|assets\/admin(?:\.bundle)?\.js|teacher-login\.html|assets\/(?:site|v5[5689])\.css|assets\/(?:app|v53-upgrades|v56-fixes)\.js/.test(appShellSource) || !sw.includes('event.waitUntil(network.catch')) fail('Large or superseded assets are still precached, or repeat-visit caching is missing');
 if (!read('index.html').includes('<script defer src="https://www.gstatic.com/firebasejs/')) fail('Firebase scripts are not downloaded in parallel with deferred execution');
 const upgrade = read('assets/v53-upgrades.js');
 if (!upgrade.includes('beforeinstallprompt') || !upgrade.includes('إضافة إلى الشاشة الرئيسية') || !upgrade.includes('navigator.standalone')) fail('Mobile install handling is incomplete');
@@ -226,6 +226,14 @@ for (const feature of ['importStudentsFile', 'exportStudentsCSV', 'exportAttenda
 }
 if (!adminSource.includes('اشتراكات السنتر') || adminSource.includes('بوابة دفع')) fail('Center subscription wording is incomplete');
 if (!failures.some(x => x.includes('Admin v54 feature') || x.includes('subscription wording'))) ok('Academic-year, export, error-monitoring, and center-subscription checks passed');
+
+if (!adminSourceCode.includes('renderWarnings') || !adminSourceCode.includes('warningPhoneFilter') || !adminSourceCode.includes('sendAbsenceWarningWhatsApp')) fail('Absence warning workflow or filters are incomplete');
+if (!adminSourceCode.includes('renderStudentRequests') || !appSourceCode.includes('bindStudentTransferForms') || !functionsSource.includes('exports.createStudentTransferRequest') || !functionsSource.includes('exports.reviewStudentTransferRequest')) fail('Student transfer workflow is incomplete');
+if (!functionsSource.includes("require('./lib/assignment-schedule')") || !functionsSource.includes('assignmentSubmissionIsOpen') || !adminSourceCode.includes('name="publishAt"')) fail('Scheduled homework workflow is incomplete');
+if (!rules.includes('match /student_transfer_requests/{id}') || !rules.includes('match /assignments/{id} { allow read, write: if isTeacher(); }')) fail('Transfer request or scheduled-homework rules are incomplete');
+if (!read('assets/v59.css').includes('.absence-warning-card') || !read('assets/v59.css').includes('.student-transfer-form') || !read('assets/v59.css').includes('.booking-admin-filters')) fail('V59 responsive styles are incomplete');
+if (fs.existsSync(path.join(root,'online.html')) || fs.existsSync(path.join(root,'assets/online.js')) || /exports\.(?:getOnlineContentForStudent|recordLectureProgress)\b/.test(functionsSource)) fail('Online-study components were added to the center-only Mahmoud release');
+if (!failures.some(x => x.includes('workflow is incomplete') || x.includes('V59 responsive') || x.includes('Online-study'))) ok('Center-only V59 workflows and online exclusion passed');
 
 if (failures.length) {
   console.error('\nVerification failed:');

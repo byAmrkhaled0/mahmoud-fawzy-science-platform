@@ -1,6 +1,6 @@
 {
   "name": "mahmoud-fawzy-science-platform-stable",
-  "version": "58.0.0",
+  "version": "59.2.1",
   "private": true,
   "scripts": {
     "dev": "node local-server.js",
@@ -9,7 +9,7 @@
     "firebase:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
     "firebase:functions": "firebase deploy --only functions",
     "firebase:hosting": "npm run build && firebase deploy --only hosting",
-    "test": "node scripts/student-name.test.js && node scripts/verify.js",
+    "test": "node scripts/verify.js && node --test scripts/admin-academic-linking.test.js scripts/assignment-schedule.test.js scripts/student-name.test.js scripts/student-transfer-flow.test.js",
     "firebase:deploy:backend": "firebase deploy --only firestore:rules,firestore:indexes,storage,functions",
     "firebase:deploy:all": "npm run test && npm run build && firebase deploy --only firestore:rules,firestore:indexes,storage,functions,hosting",
     "deploy:production": "powershell -ExecutionPolicy Bypass -File ./deploy-production.ps1"
