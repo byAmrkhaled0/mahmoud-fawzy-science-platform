@@ -11,7 +11,7 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
-var MF_ASSET_VERSION = '59.4.2';
+var MF_ASSET_VERSION = '59.4.5';
 var mfLazyScriptPromises = Object.create(null);
 
 function loadLazyScript(key, source, readyCheck){
@@ -476,7 +476,7 @@ function renderStudentUpcomingExam(exams,code){
 function startLiveCountdowns(root=document){
   root.querySelectorAll('[data-student-exam-countdown],[data-exam-countdown]').forEach(node=>{
     clearInterval(node.__countdownTimer);const target=Number(node.dataset.studentExamCountdown||node.dataset.examCountdown||0),value=node.querySelector('[data-countdown-value]'),mode=node.dataset.examCountdownMode||'open';
-    const expire=()=>{if(node.dataset.countdownExpired==='1')return;node.dataset.countdownExpired='1';clearInterval(node.__countdownTimer);node.classList.add('countdown-expired');if(value)value.textContent=mode==='upcoming'?'متاح الآن':'انتهى الوقت';const label=node.querySelector('.exam-card-countdown small,div>small');if(label)label.textContent=mode==='upcoming'?'الامتحان متاح الآن':'تم إغلاق الامتحان';const action=node.querySelector('.exam-start-btn,a.btn');if(mode==='open'&&action){if(action.tagName==='A')action.removeAttribute('href');else action.disabled=true;action.setAttribute('aria-disabled','true');action.textContent='انتهى وقت الامتحان';}if(mode==='upcoming'){const key=`mf-exam-open-refresh-${target}`,last=Number(sessionStorage.getItem(key)||0);if(Date.now()-last>5000){sessionStorage.setItem(key,String(Date.now()));setTimeout(()=>location.reload(),700);}}};
+    const expire=()=>{if(node.dataset.countdownExpired==='1')return;node.dataset.countdownExpired='1';clearInterval(node.__countdownTimer);node.classList.add('countdown-expired');if(value)value.textContent=mode==='upcoming'?'متاح الآن':'انتهى الوقت';const label=node.querySelector('.exam-card-countdown small,div>small');if(label)label.textContent=mode==='upcoming'?'الامتحان متاح الآن':'تم إغلاق الامتحان';const action=node.querySelector('.exam-start-btn,a.btn');if(!action)return;if(mode==='upcoming'){node.classList.remove('upcoming','countdown-expired');node.classList.add('open');node.dataset.examCountdownMode='open';if(action.tagName==='BUTTON'){action.disabled=false;action.removeAttribute('aria-disabled');action.classList.remove('ghost');action.classList.add('primary');action.innerHTML='<span data-icon="clipboard"></span> بدء الامتحان';}else{action.removeAttribute('aria-disabled');action.textContent='دخول الامتحان';}hydrateIcons();return;}if(action.tagName==='A')action.removeAttribute('href');else action.disabled=true;action.setAttribute('aria-disabled','true');action.textContent='انتهى وقت الامتحان';};
     const tick=()=>{if(target&&Date.now()>=target)return expire();if(value)value.textContent=target?examCountdownText(target):'مفتوح الآن';};
     tick();node.__countdownTimer=setInterval(tick,1000);
   });
@@ -1105,7 +1105,7 @@ function registerServiceWorker(){
       registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)worker.postMessage({type:'SKIP_WAITING'});});});
     }catch(_){ }
   });
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{const key=`mf_sw_reloaded_${MF_ASSET_VERSION.replaceAll('.','_')}`;if(sessionStorage.getItem(key))return;sessionStorage.setItem(key,'1');location.reload();}catch(_){ }});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{try{const key=`mf_sw_ready_${MF_ASSET_VERSION.replaceAll('.','_')}`;if(sessionStorage.getItem(key))return;sessionStorage.setItem(key,'1');setTimeout(()=>toast('تم تحديث المنصة. سيظهر الإصدار الجديد بالكامل عند فتح الصفحة التالية.'),250);}catch(_){ }});
 }
 function setupPWAInstall(){
   let button=document.getElementById('installAppButton');

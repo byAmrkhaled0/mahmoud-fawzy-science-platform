@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5941";
+const CACHE_NAME = "mf-science-v5945";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
@@ -68,7 +68,7 @@ self.addEventListener("fetch", event => {
     event.respondWith((async()=>{
       try{
         const response=await fetch(request);
-        if(response.ok){const cache=await caches.open(CACHE_NAME);cache.put(request,response.clone());}
+        if(response.ok){const cache=await caches.open(CACHE_NAME);await cache.put(request,response.clone());}
         return response;
       }catch(_){
         // Query strings such as ?code=12345678 must fall back to the cached
@@ -81,7 +81,12 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if(url.pathname==="/assets/firebase-config.js"){
+  const criticalAssets=new Set([
+    "/assets/firebase-config.js", "/assets/firebase-sync.js",
+    "/assets/public.bundle.js", "/assets/admin.bundle.js",
+    "/assets/site.bundle.css"
+  ]);
+  if(criticalAssets.has(url.pathname)){
     event.respondWith((async()=>{
       try{
         const response=await fetch(request,{cache:"no-store"});
@@ -100,9 +105,9 @@ self.addEventListener("fetch", event => {
       if(response.ok){const cache=await caches.open(CACHE_NAME);await cache.put(request,response.clone());}
       return response;
     });
-    event.respondWith(caches.match(request,{ignoreSearch:true}).then(cached=>{
+    event.respondWith(caches.match(request).then(cached=>{
       if(cached){event.waitUntil(network.catch(()=>null));return cached;}
-      return network.catch(()=>caches.match(request,{ignoreSearch:true}));
+      return network.catch(()=>caches.match(request));
     }));
   }
 });

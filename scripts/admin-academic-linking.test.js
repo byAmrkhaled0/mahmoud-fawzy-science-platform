@@ -123,9 +123,13 @@ test('exam countdowns expire once without a reload loop', () => {
   const functionsSource = fs.readFileSync(path.resolve(__dirname, '../functions/index.js'), 'utf8');
   assert.match(appSource, /data-exam-countdown-mode/);
   assert.match(appSource, /countdownExpired==='1'/);
-  assert.doesNotMatch(appSource.match(/function startLiveCountdowns[\s\S]*?var parentQrScanner/)?.[0] || '', /setTimeout\(\(\)=>location\.reload\(\),900\)/);
+  const countdownSource=appSource.match(/function startLiveCountdowns[\s\S]*?var parentQrScanner/)?.[0] || '';
+  assert.doesNotMatch(countdownSource, /location\.reload/);
+  assert.match(countdownSource, /action\.disabled=false/);
+  assert.match(countdownSource, /action\.disabled=true/);
   assert.match(functionsSource, /now >= closeAt/);
   assert.match(source, /__academicCountdownRefreshPending/);
+  assert.doesNotMatch(fs.readFileSync(path.resolve(__dirname, '../assets/v53-upgrades.js'), 'utf8'), /setTimeout\(\(\)=>currentSection==='exams'&&renderExams\(\),1100\)/);
 });
 
 test('student and attendance administration are mobile-first and grade-linked', () => {

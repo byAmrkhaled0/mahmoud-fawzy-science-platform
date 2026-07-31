@@ -15,7 +15,7 @@
       ]
     },
     {
-      "source": "/assets/firebase-config.js",
+      "source": "/assets/(firebase-config|firebase-sync|public.bundle|admin.bundle|site.bundle).(js|css)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -37,7 +37,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400, stale-while-revalidate=604800"
+          "value": "no-cache, must-revalidate"
         }
       ]
     },

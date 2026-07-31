@@ -44,7 +44,7 @@ Write-Host "7/7 Pushing production source to GitHub..." -ForegroundColor Cyan
 Invoke-Checked -Executable "git" -ArgumentList @("add", "-A")
 $changes = git status --porcelain
 if ($changes) {
-  Invoke-Checked -Executable "git" -ArgumentList @("commit", "-m", "Fix Windows production deploy V59.4.2")
+  Invoke-Checked -Executable "git" -ArgumentList @("commit", "-m", "Fix Windows production deploy V59.4.5")
   Invoke-Checked -Executable "git" -ArgumentList @("push", "origin", "main")
 } else {
   Write-Host "No Git changes to push." -ForegroundColor Yellow

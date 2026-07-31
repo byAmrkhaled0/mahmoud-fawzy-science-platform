@@ -34,7 +34,7 @@
         ]
       },
       {
-        "source": "/assets/firebase-config.js",
+        "source": "/assets/{firebase-config.js,firebase-sync.js,public.bundle.js,admin.bundle.js,site.bundle.css}",
         "headers": [
           {
             "key": "Cache-Control",
