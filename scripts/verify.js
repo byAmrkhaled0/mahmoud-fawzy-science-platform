@@ -11,7 +11,7 @@ const requiredFiles = [
   'assets/app.js', 'assets/admin.js', 'assets/v53-upgrades.js', 'assets/v55-admin.js', 'assets/v55.css', 'assets/v56-fixes.js', 'assets/v56.css', 'assets/teacher.webp',
   'assets/firebase-sync.js', 'assets/firebase-config.js', 'assets/icon-maskable-512.png',
   'firestore.rules', 'storage.rules', 'firestore.indexes.json', 'firebase.json',
-  'functions/index.js', 'functions/lib/student-name.js', 'functions/lib/assignment-schedule.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html',
+  'functions/index.js', 'functions/lib/student-name.js', 'functions/lib/assignment-schedule.js', 'functions/lib/exam-scoring.js', 'functions/package.json', 'service-worker.js', 'site.webmanifest', 'teacher.webmanifest', 'offline.html',
   'assets/v58.css', 'assets/v59.css', 'scripts/admin-academic-linking.test.js', 'scripts/assignment-schedule.test.js'
 ];
 

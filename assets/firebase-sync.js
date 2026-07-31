@@ -215,7 +215,7 @@
         ops.push(batch=>batch.set(db.collection('exam_attempts').doc(id),{...item,id,studentCode,updatedAt:serverTime()},{merge:true}));
         if(studentCode){
           const parent=db.collection('student_attempts').doc(cleanDocId(studentCode));
-          const summary={id,studentCode,examId:item.examId||'',examTitle:item.examTitle||item.exam||'امتحان',submittedAt:item.submittedAt||item.date||'',score:item.score??null,autoScore:item.autoScore??null,needsManualReview:item.needsManualReview===true,status:item.status||'',academicYear:item.academicYear||'',term:item.term||''};
+          const summary={id,studentCode,examId:item.examId||'',examTitle:item.examTitle||item.exam||'امتحان',submittedAt:item.submittedAt||item.date||'',score:item.score??null,autoScore:item.autoScore??null,percentage:item.percentage??null,autoPercentage:item.autoPercentage??null,maxScore:item.maxScore??100,answers:Array.isArray(item.answers)?item.answers:[],needsManualReview:item.needsManualReview===true,status:item.status||'',academicYear:item.academicYear||'',term:item.term||''};
           ops.push(batch=>batch.set(parent,{studentCode,lastAttempt:summary,updatedAt:serverTime()},{merge:true}));
           ops.push(batch=>batch.set(parent.collection('attempts').doc(id),summary,{merge:true}));
         }
@@ -508,7 +508,7 @@
         const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');
         const id=cleanDocId(attempt.id||`${attempt.examId}_${attempt.studentCode}`),studentCode=normalizeCode(attempt.studentCode||'');const ops=[];
         ops.push(batch=>batch.set(db.collection('exam_attempts').doc(id),{...attempt,id,studentCode,updatedAt:serverTime()},{merge:true}));
-        if(studentCode){const parent=db.collection('student_attempts').doc(cleanDocId(studentCode));const summary={id,studentCode,examId:attempt.examId||'',examTitle:attempt.examTitle||attempt.exam||'امتحان',submittedAt:attempt.submittedAt||attempt.date||nowIso(),score:attempt.score??null,autoScore:attempt.autoScore??null,needsManualReview:attempt.needsManualReview===true,status:attempt.status||'',academicYear:attempt.academicYear||'',term:attempt.term||''};ops.push(batch=>batch.set(parent,{studentCode,lastAttempt:summary,updatedAt:serverTime()},{merge:true}));ops.push(batch=>batch.set(parent.collection('attempts').doc(id),summary,{merge:true}));}
+        if(studentCode){const parent=db.collection('student_attempts').doc(cleanDocId(studentCode));const summary={id,studentCode,examId:attempt.examId||'',examTitle:attempt.examTitle||attempt.exam||'امتحان',submittedAt:attempt.submittedAt||attempt.date||nowIso(),score:attempt.score??null,autoScore:attempt.autoScore??null,percentage:attempt.percentage??null,autoPercentage:attempt.autoPercentage??null,maxScore:attempt.maxScore??100,answers:Array.isArray(attempt.answers)?attempt.answers:[],needsManualReview:attempt.needsManualReview===true,status:attempt.status||'',academicYear:attempt.academicYear||'',term:attempt.term||''};ops.push(batch=>batch.set(parent,{studentCode,lastAttempt:summary,updatedAt:serverTime()},{merge:true}));ops.push(batch=>batch.set(parent.collection('attempts').doc(id),summary,{merge:true}));}
         await commitOperations(ops);
       },
       upsertAttendance,getAttendanceForDate,

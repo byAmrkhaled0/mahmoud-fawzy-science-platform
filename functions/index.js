@@ -20,6 +20,7 @@ const {
   learningTargetMatchesStudent
 } = require('./lib/academic-targeting');
 const { getExamScheduleState } = require('./lib/exam-schedule');
+const { positiveScore, assignQuestionScores, scoreSummary } = require('./lib/exam-scoring');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'europe-west1', maxInstances: 10, memory: '256MiB' });
@@ -253,6 +254,7 @@ function publicExamSession(sessionId, exam, questions, startedAtMs, expiresAtMs)
       title: text(exam.title, 200),
       instructions: text(exam.instructions, 1500),
       duration: Math.max(1, Math.min(240, Number(exam.duration || 20))),
+      maxScore: positiveExamScore(exam.maxScore, questions.reduce((sum, q) => sum + positiveExamScore(q.points, 1), 0)),
       pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
       pdfName: text(exam.pdfName || exam.examPdfName, 220)
     },
@@ -261,10 +263,19 @@ function publicExamSession(sessionId, exam, questions, startedAtMs, expiresAtMs)
     questions: questions.map(q => ({
       type: q.type,
       question: q.question,
+      points: positiveExamScore(q.points, 1),
       options: q.options,
       optionLabels: q.optionLabels
     }))
   };
+}
+
+function positiveExamScore(value, fallback = 1) {
+  return positiveScore(value, fallback);
+}
+
+function examQuestionsWithScores(questions, configuredMaxScore) {
+  return assignQuestionScores(questions, configuredMaxScore);
 }
 
 function cleanAnswerLine(line) {
@@ -285,11 +296,13 @@ function parseExamQuestions(source) {
   return blocks.map(block => {
     const lines = block.split('\n').map(x => x.trim()).filter(Boolean);
     const answerLine = lines.find(line => /^(answer|correct|الإجابة|الاجابة|الإجابة الصحيحة|الاجابة الصحيحة)\s*[:=：-]?/i.test(line));
+    const pointsLine = lines.find(line => /^(points?|marks?|score|الدرجة|درجات)\s*[:=：-]?/i.test(line));
     const answer = answerLine ? cleanAnswerLine(answerLine) : '';
+    const points = pointsLine ? positiveExamScore(normalizeDigits(pointsLine).replace(/^[^:=：\-]*[:=：-]?\s*/i, ''), 1) : null;
     const options = [];
     const questionLines = [];
     for (const line of lines) {
-      if (line === answerLine) continue;
+      if (line === answerLine || line === pointsLine) continue;
       const option = parseOptionLine(line);
       if (option) options.push(option);
       else questionLines.push(line.replace(/^س\d*\s*[:\-]?\s*/, '').trim());
@@ -301,10 +314,11 @@ function parseExamQuestions(source) {
         question,
         options: options.slice(0, 8).map(o => text(o.text, 700)),
         optionLabels: options.slice(0, 8).map(o => text(o.label, 10)),
-        answer: text(answer, 700)
+        answer: text(answer, 700),
+        points
       };
     }
-    return { type: 'essay', question, options: [], optionLabels: [], answer: '' };
+    return { type: 'essay', question, options: [], optionLabels: [], answer: '', points };
   }).filter(q => q.question);
 }
 
@@ -401,6 +415,21 @@ async function attemptSummaries(studentCode) {
     submittedAt: text(a.submittedAt, 60),
     score: a.score === null || a.score === undefined ? null : Number(a.score),
     autoScore: a.autoScore === null || a.autoScore === undefined ? null : Number(a.autoScore),
+    autoMaxScore: a.autoMaxScore === null || a.autoMaxScore === undefined ? null : Number(a.autoMaxScore),
+    percentage: a.percentage === null || a.percentage === undefined
+      ? (a.score === null || a.score === undefined ? null : Math.round(Number(a.score) / positiveExamScore(a.maxScore, 100) * 100))
+      : Number(a.percentage),
+    autoPercentage: a.autoPercentage === null || a.autoPercentage === undefined ? null : Number(a.autoPercentage),
+    maxScore: positiveExamScore(a.maxScore, 100),
+    answers: Array.isArray(a.answers) ? a.answers.slice(0, 200).map(answer => ({
+      question: text(answer.question, 1500),
+      type: answer.type === 'essay' ? 'essay' : 'mcq',
+      answer: text(answer.answer, 4000),
+      correct: answer.correct === true ? true : answer.correct === false ? false : null,
+      correctAnswer: text(answer.correctAnswer, 1000),
+      points: positiveExamScore(answer.points, 1),
+      awardedScore: answer.awardedScore === null || answer.awardedScore === undefined ? null : Number(answer.awardedScore)
+    })) : [],
     needsManualReview: a.needsManualReview === true,
     status: text(a.status, 40)
   }));
@@ -1132,6 +1161,7 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
       pdfName: text(exam.pdfName || exam.examPdfName, 220),
       allowRetake: exam.allowRetake === true,
       questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length),
+      maxScore: positiveExamScore(exam.maxScore, 100),
       availability: examAvailability(exam, now)
     }))
     .sort((a, b) => {
@@ -1160,7 +1190,7 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
   if (!examMatchesStudent(exam, found.data)) {
     throw new HttpsError('permission-denied', 'هذا الامتحان غير مخصص لصفك أو مجموعتك أو عامك الدراسي.');
   }
-  const questions = parseExamQuestions(exam.text || exam.questionsText || '');
+  const questions = examQuestionsWithScores(parseExamQuestions(exam.text || exam.questionsText || ''), exam.maxScore);
   if (!questions.length) throw new HttpsError('failed-precondition', 'الامتحان لا يحتوي على أسئلة صالحة.');
   if (questions.length > 200) throw new HttpsError('failed-precondition', 'عدد أسئلة الامتحان أكبر من الحد المسموح.');
 
@@ -1207,6 +1237,7 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
       academicYear: text(found.data.academicYear, 20),
       term: text(found.data.term, 40),
       examTitle: text(exam.title, 200),
+      maxScore: Math.round(questions.reduce((sum, question) => sum + positiveExamScore(question.points, 1), 0) * 100) / 100,
       instructions: text(exam.instructions, 1500),
       pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
       pdfName: text(exam.pdfName || exam.examPdfName, 220),
@@ -1237,6 +1268,7 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
     title: sessionData.examTitle || exam.title,
     instructions: sessionData.instructions || exam.instructions,
     duration: sessionData.duration || durationMinutes,
+    maxScore: sessionData.maxScore || exam.maxScore,
     pdfUrl: sessionData.pdfUrl || exam.pdfUrl || exam.examPdfUrl,
     pdfName: sessionData.pdfName || exam.pdfName || exam.examPdfName
   }, snapshotQuestions, startedAtMs, expiresAtMs);
@@ -1265,25 +1297,29 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
     title: session.examTitle || 'امتحان',
     allowRetake: session.allowRetake === true
   };
-  const questions = Array.isArray(session.questions) && session.questions.length
+  const questions = examQuestionsWithScores(Array.isArray(session.questions) && session.questions.length
     ? session.questions
-    : parseExamQuestions(exam.text || exam.questionsText || '');
+    : parseExamQuestions(exam.text || exam.questionsText || ''), session.maxScore || exam.maxScore);
   if (!questions.length) throw new HttpsError('failed-precondition', 'تعذر قراءة أسئلة الامتحان.');
   if (Object.keys(rawAnswers).length > questions.length + 5) throw new HttpsError('invalid-argument', 'عدد الإجابات غير صالح.');
 
   let correctCount = 0;
+  let awardedScore = 0;
+  let autoMaxScore = 0;
   let mcqCount = 0;
   let essayCount = 0;
   let needsManualReview = false;
   const staffAnswers = [];
   questions.forEach((question, index) => {
     const value = rawAnswers[String(index)] ?? rawAnswers[index] ?? '';
+    const points = positiveExamScore(question.points, 1);
     if (question.type === 'mcq') {
       mcqCount += 1;
+      autoMaxScore += points;
       const chosenIndex = Number(value);
       const chosen = Number.isInteger(chosenIndex) ? question.options[chosenIndex] || '' : '';
       const correct = mcqCorrect(question, chosenIndex);
-      if (correct === true) correctCount += 1;
+      if (correct === true) { correctCount += 1; awardedScore += points; }
       if (correct === null) needsManualReview = true;
       staffAnswers.push({
         question: question.question,
@@ -1291,6 +1327,8 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
         answer: text(chosen, 1000),
         answerIndex: Number.isInteger(chosenIndex) ? chosenIndex : null,
         correct,
+        points,
+        awardedScore: correct === true ? points : 0,
         correctAnswer: question.answer,
         options: question.options,
         optionLabels: question.optionLabels
@@ -1303,13 +1341,19 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
         type: 'essay',
         answer: text(value, 4000),
         correct: null,
+        points,
+        awardedScore: null,
         correctAnswer: 'يصححها المدرس'
       });
     }
   });
 
-  const autoScore = mcqCount ? Math.round((correctCount / mcqCount) * 100) : null;
-  const score = needsManualReview ? null : (autoScore || 0);
+  const scored = scoreSummary(questions, staffAnswers.map(answer => answer.awardedScore), needsManualReview);
+  const maxScore = scored.maxScore;
+  const autoScore = mcqCount ? Math.round(awardedScore * 100) / 100 : null;
+  const autoPercentage = autoMaxScore ? Math.round((awardedScore / autoMaxScore) * 100) : null;
+  const score = scored.score;
+  const percentage = scored.percentage;
   const attemptRef = db.collection('exam_attempts').doc();
   const submittedAt = new Date().toISOString();
   const attempt = {
@@ -1326,7 +1370,10 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
     submittedAt,
     score,
     autoScore,
-    maxScore: 100,
+    autoMaxScore,
+    percentage,
+    autoPercentage,
+    maxScore,
     mcqCount,
     essayCount,
     questionCount: questions.length,
@@ -1346,6 +1393,11 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
     submittedAt,
     score,
     autoScore,
+    autoMaxScore,
+    percentage,
+    autoPercentage,
+    maxScore,
+    answers: staffAnswers,
     needsManualReview,
     status: attempt.status,
     academicYear: attempt.academicYear,

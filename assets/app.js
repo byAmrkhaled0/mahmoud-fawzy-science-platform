@@ -11,7 +11,7 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
-var MF_ASSET_VERSION = '59.4.6';
+var MF_ASSET_VERSION = '59.4.7';
 var mfLazyScriptPromises = Object.create(null);
 
 function loadLazyScript(key, source, readyCheck){
@@ -106,6 +106,8 @@ function safeStorageRemove(key){try{localStorage.removeItem(key);}catch(e){}}
 function formatPortalDate(value){if(!value)return '-'; try{return new Date(value).toLocaleDateString('ar-EG',{year:'numeric',month:'short',day:'numeric'});}catch(e){return String(value);}}
 function scoreLabel(score){const n=Number(score); if(Number.isNaN(n)) return 'بانتظار التصحيح'; return n>=90?'ممتاز':n>=75?'جيد جدًا':n>=60?'جيد':'يحتاج متابعة';}
 function scoreClass(score){const n=Number(score); if(Number.isNaN(n)) return 'warn'; return n>=75?'good':n>=60?'warn':'danger';}
+function gradePercentage(row){const saved=Number(row?.percentage);if(Number.isFinite(saved))return Math.max(0,Math.min(100,Math.round(saved)));const score=Number(row?.score),max=Number(row?.maxScore||row?.totalScore||row?.fullMark||100);return Number.isFinite(score)&&max>0?Math.max(0,Math.min(100,Math.round(score/max*100))):null;}
+function gradeMark(row){return `${Number(row?.score||0)} من ${Number(row?.maxScore||row?.totalScore||row?.fullMark||100)}`;}
 function getSiteBase(){return (appData.settings?.siteUrl || DEFAULT_SITE_URL || location.origin).replace(/\/$/,'');}
 function defaultData(){return {students:[],bookings:[],materials:[],questions:[],exams:[],examAttempts:[],grades:[],reviews:[],groups:[],assignments:[],studentTransferRequests:[],settings:{siteUrl:DEFAULT_SITE_URL||'',teacherPhone:TEACHER_WHATSAPP||''}};}
 function mergeData(data){const d=defaultData(); const p=data||{}; return {...d,...p,settings:{...d.settings,...(p.settings||{})},students:Array.isArray(p.students)?p.students:[],bookings:Array.isArray(p.bookings)?p.bookings:[],materials:Array.isArray(p.materials)?p.materials:[],questions:Array.isArray(p.questions)?p.questions:[],exams:Array.isArray(p.exams)?p.exams:[],examAttempts:Array.isArray(p.examAttempts)?p.examAttempts:[],grades:Array.isArray(p.grades)?p.grades:[],reviews:Array.isArray(p.reviews)?p.reviews:[],groups:Array.isArray(p.groups)?p.groups:[],assignments:Array.isArray(p.assignments)?p.assignments:[],studentTransferRequests:Array.isArray(p.studentTransferRequests)?p.studentTransferRequests:[]};}
@@ -240,8 +242,8 @@ function calcStudent(st){
   const total = attendance.length;
   const present = attendance.filter(a=>(a.status==='present'||a.status==='حاضر'||a.status==='متأخر')).length;
   const attendancePct = total ? Math.round((present/total)*100) : 0;
-  const graded=(st.grades||[]).filter(g=>g.score!==''&&g.score!==undefined&&g.score!==null&&!isNaN(Number(g.score)));
-  const avg=graded.length?Math.round(graded.reduce((s,g)=>s+Number(g.score),0)/graded.length):0;
+  const graded=[...(st.grades||[]),...(st.examAttempts||[])].filter(g=>g.score!==''&&g.score!==undefined&&g.score!==null&&gradePercentage(g)!==null);
+  const avg=graded.length?Math.round(graded.reduce((s,g)=>s+gradePercentage(g),0)/graded.length):0;
   const recitations=(st.recitations||[]).filter(classRecordComplete),homeworks=(st.homeworks||[]).filter(classRecordComplete);
   const classDates=new Set(attendance.map(classRecordDate).filter(Boolean));
   recitations.forEach(row=>{const date=classRecordDate(row);if(date)classDates.add(date);});
@@ -358,7 +360,7 @@ function studentProfileHTML(raw, isParent=false){
   const initials=String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('');
   const gradeCards=grades.length?grades.slice(0,12).map(g=>{
     const hasScore=g.score!==null&&g.score!==undefined&&g.score!=='';
-    return `<article class="student-record-card grade-record-card"><div><span class="record-eyebrow">${esc(formatPortalDate(g.date||g.submittedAt))}</span><h4>${esc(g.exam||g.examTitle||'امتحان')}</h4><small>${hasScore?esc(scoreLabel(g.score)):'سيظهر التقييم بعد تصحيح المدرس'}</small></div><strong class="score-pill ${hasScore?scoreClass(g.score):'warn'}">${hasScore?esc(g.score)+'%':'قيد التصحيح'}</strong></article>`;
+    const pct=gradePercentage(g);return `<article class="student-record-card grade-record-card"><div><span class="record-eyebrow">${esc(formatPortalDate(g.date||g.submittedAt))}</span><h4>${esc(g.exam||g.examTitle||'امتحان')}</h4><small>${hasScore?esc(scoreLabel(pct)):'سيظهر التقييم بعد تصحيح المدرس'}</small></div><strong class="score-pill ${hasScore?scoreClass(pct):'warn'}">${hasScore?esc(gradeMark(g)):'قيد التصحيح'}</strong></article>`;
   }).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد درجات بعد</h3><p>ستظهر نتائج الامتحانات هنا فور تسجيلها.</p></div>';
   const attendanceCards=attendance.length?attendance.slice(0,14).map(r=>`<article class="student-record-card"><div><span class="record-eyebrow">${esc(formatTime12(r.time)||'موعد الحصة')}</span><h4>${esc(r.date||'-')}</h4><small>${esc(r.group||st.group||'-')}</small></div><span class="badge ${statusClass(r.status)}">${arStatus(r.status)}</span></article>`).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="calendar"></span><h3>لا توجد سجلات حضور</h3><p>يضيف المدرس سجل الحضور، وسيظهر هنا تلقائيًا.</p></div>';
   const homeworkCards=homeworks.length?homeworks.slice(0,12).map(h=>{const questions=portalAssignmentQuestions(h);return `<article class="student-record-card student-assignment-card"><div><span class="record-eyebrow">واجب دراسي</span><h4>${esc(h.title||h.homeworkTitle||'واجب')}</h4>${h.notes?`<small>${esc(h.notes)}</small>`:''}${h.dueDate?`<small>آخر موعد: ${esc(formatPortalDate(h.dueDate))}</small>`:''}${questions.length?`<ol class="student-assignment-questions">${questions.map(question=>`<li>${esc(question)}</li>`).join('')}</ol>`:''}${h.fileUrl?`<a class="small-btn assignment-file-link" href="${esc(h.fileUrl)}" target="_blank" rel="noopener"><span data-icon="file-text"></span> فتح ملف الواجب</a>`:''}</div><span class="badge ${classRecordComplete(h)?'good':'warn'}">${esc(h.status||(classRecordComplete(h)?'تم عمل الواجب':'قيد المتابعة'))}</span></article>`;}).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="file-text"></span><h3>لا توجد واجبات مسجلة</h3><p>ستظهر الواجبات التي ينشرها المستر هنا.</p></div>';
@@ -377,7 +379,7 @@ function studentProfileHTML(raw, isParent=false){
     </section>
     <section class="student-kpi-grid">
       <article><span data-icon="bar-chart"></span><b>${c.final}%</b><small>المستوى العام</small></article>
-      <article><span data-icon="star"></span><b>${c.avg}%</b><small>متوسط الدرجات</small></article>
+      <article><span data-icon="star"></span><b>${c.avg}%</b><small>متوسط مستوى الامتحانات</small></article>
       <article><span data-icon="calendar"></span><b>${c.attendancePct}%</b><small>نسبة الحضور</small></article>
       <article><span data-icon="book-open"></span><b>${c.recitationPct}%</b><small>انتظام التسميع</small></article>
       <article><span data-icon="file-text"></span><b>${c.homeworkPct}%</b><small>انتظام الواجب</small></article>
@@ -394,7 +396,7 @@ function studentProfileHTML(raw, isParent=false){
     <section class="student-tab-panel show" data-student-panel="overview">
       <div class="student-overview-grid">
         <article class="student-highlight-card"><span class="iconbox" data-icon="sparkles"></span><div><small>تقييمك الحالي</small><h3>${esc(c.level)}</h3><p>استمر في الحضور وحل الامتحانات والتسميع والواجبات لتحسين ترتيبك.</p></div></article>
-        <article class="student-highlight-card"><span class="iconbox" data-icon="star"></span><div><small>آخر درجة</small><h3>${c.lastGrade?esc(c.lastGrade.score)+'%':'لا توجد بعد'}</h3><p>${c.lastGrade?esc(c.lastGrade.exam||c.lastGrade.examTitle||'آخر امتحان'):'ستظهر آخر نتيجة هنا.'}</p></div></article>
+        <article class="student-highlight-card"><span class="iconbox" data-icon="star"></span><div><small>آخر درجة</small><h3>${c.lastGrade?esc(gradeMark(c.lastGrade)):'لا توجد بعد'}</h3><p>${c.lastGrade?esc(c.lastGrade.exam||c.lastGrade.examTitle||'آخر امتحان'):'ستظهر آخر نتيجة هنا.'}</p></div></article>
       </div>
       <article class="teacher-note-card"><span data-icon="clipboard"></span><div><small>ملاحظات المدرس</small><p>${esc(st.notes||'لا توجد ملاحظات حالية. استمر في المذاكرة والمتابعة.')}</p></div></article>
       ${transferOverview}
@@ -537,7 +539,7 @@ function parentReportText(raw){
   const rows = studentReportRows(st);
   const lastGrade = rows.grades.filter(g=>g.score!==undefined && g.score!==null && g.score!=='').slice(-1)[0];
   const lastAttendance = rows.attendance.slice(0,6).map(r=>`- ${r.date || '-'}: ${arStatus(r.status)} ${r.time ? '('+formatTime12(r.time)+')' : ''}`).join('\n') || '- لا توجد سجلات حضور بعد';
-  return `تقرير متابعة شهر ${monthLabel(st)}\n\nالطالب: ${st.name || '-'}\nالكود الموحد: ${st.studentCode || '-'}\nالصف: ${st.grade || '-'}\nالمجموعة: ${st.group || '-'}\n\nملخص الحالة:\n- المستوى العام: ${c.final}% - ${c.level}\n- نسبة الحضور: ${c.attendancePct}%\n- متوسط الدرجات: ${c.avg}%\n- انتظام التسميع: ${c.recitationPct}% (${c.recitationCount} مرة)\n- انتظام الواجب: ${c.homeworkPct}% (${c.homeworkCount} مرة)\n- اشتراك السنتر: ${st.paid ? 'تم الدفع في السنتر' : 'لم يتم الدفع في السنتر'}\n\nآخر درجة: ${lastGrade ? (lastGrade.exam || lastGrade.examTitle || 'امتحان') + ' - ' + (lastGrade.score ?? 'بانتظار التصحيح') : 'لا توجد درجات بعد'}\n\nالحضور والغياب:\n${lastAttendance}\n\nملاحظات المدرس:\n${st.notes || 'لا توجد ملاحظات حالية.'}\n\nمع تحيات مستر محمود إبراهيم فوزي`;
+  return `تقرير متابعة شهر ${monthLabel(st)}\n\nالطالب: ${st.name || '-'}\nالكود الموحد: ${st.studentCode || '-'}\nالصف: ${st.grade || '-'}\nالمجموعة: ${st.group || '-'}\n\nملخص الحالة:\n- المستوى العام: ${c.final}% - ${c.level}\n- نسبة الحضور: ${c.attendancePct}%\n- متوسط مستوى الامتحانات: ${c.avg}%\n- انتظام التسميع: ${c.recitationPct}% (${c.recitationCount} مرة)\n- انتظام الواجب: ${c.homeworkPct}% (${c.homeworkCount} مرة)\n- اشتراك السنتر: ${st.paid ? 'تم الدفع في السنتر' : 'لم يتم الدفع في السنتر'}\n\nآخر درجة: ${lastGrade ? (lastGrade.exam || lastGrade.examTitle || 'امتحان') + ' - ' + gradeMark(lastGrade) + ' (المستوى ' + gradePercentage(lastGrade) + '%)' : 'لا توجد درجات بعد'}\n\nالحضور والغياب:\n${lastAttendance}\n\nملاحظات المدرس:\n${st.notes || 'لا توجد ملاحظات حالية.'}\n\nمع تحيات مستر محمود إبراهيم فوزي`;
 }
 
 let reportFontBase64='';
@@ -560,10 +562,10 @@ window.createParentReportPdf=async function(raw){
   const line=(label,value)=>{doc.text(`${label}: ${value||'-'}`,right,y,{align:'right'});y+=9;};
   line('اسم الطالب',st.name);line('كود الطالب',st.studentCode);line('الصف',st.grade);line('المجموعة',st.group);line('المستوى العام',`${c.final}% — ${c.level}`);
   y+=2;doc.setDrawColor(205,220,222);doc.line(15,y,195,y);y+=10;doc.setFontSize(12);
-  line('الحضور',`${c.attendancePct}% (${c.present} حاضر من ${c.totalAttendance})`);line('متوسط الدرجات',`${c.avg}%`);line('انتظام الواجب',`${c.homeworkPct}%`);line('انتظام التسميع',`${c.recitationPct}%`);line('اشتراك السنتر',st.paid?'تم الدفع في السنتر':'لم يتم الدفع');
+  line('الحضور',`${c.attendancePct}% (${c.present} حاضر من ${c.totalAttendance})`);line('متوسط مستوى الامتحانات',`${c.avg}%`);line('انتظام الواجب',`${c.homeworkPct}%`);line('انتظام التسميع',`${c.recitationPct}%`);line('اشتراك السنتر',st.paid?'تم الدفع في السنتر':'لم يتم الدفع');
   y+=3;doc.setFontSize(13);doc.text('ملاحظات المستر',right,y,{align:'right'});y+=8;doc.setFontSize(11);const notes=doc.splitTextToSize(st.notes||'لا توجد ملاحظات حالية.',175);doc.text(notes,right,y,{align:'right',maxWidth:175});y+=notes.length*6+8;
   const grades=studentReportRows(st).grades.filter(row=>row.score!==undefined&&row.score!==null).slice(-6).reverse();
-  if(grades.length&&y<250){doc.setFontSize(13);doc.text('أحدث الدرجات',right,y,{align:'right'});y+=8;doc.setFontSize(10);grades.forEach(row=>{if(y<275){doc.text(`${row.exam||row.examTitle||'امتحان'} — ${row.score}%`,right,y,{align:'right'});y+=6;}});}
+  if(grades.length&&y<250){doc.setFontSize(13);doc.text('أحدث الدرجات',right,y,{align:'right'});y+=8;doc.setFontSize(10);grades.forEach(row=>{if(y<275){doc.text(`${row.exam||row.examTitle||'امتحان'} — ${gradeMark(row)} — المستوى ${gradePercentage(row)}%`,right,y,{align:'right'});y+=6;}});}
   doc.setFontSize(9);doc.setTextColor(90,105,110);doc.text(`تاريخ التقرير: ${new Date().toLocaleDateString('ar-EG')} — مع تحيات مستر محمود إبراهيم فوزي`,center,290,{align:'center'});
   return doc.output('blob');
 };
@@ -613,7 +615,7 @@ function parentReportHTML(raw){
     <div class="metric-grid parent-report-metrics-v40">
       <div class="metric main-metric-v40"><b>${c.final}%</b><small>المستوى العام</small></div>
       <div class="metric"><b>${c.attendancePct}%</b><small>نسبة الحضور</small></div>
-      <div class="metric"><b>${c.avg}%</b><small>متوسط الدرجات</small></div>
+      <div class="metric"><b>${c.avg}%</b><small>متوسط مستوى الامتحانات</small></div>
       <div class="metric"><b>${c.recitationPct}%</b><small>انتظام التسميع</small></div>
       <div class="metric"><b>${c.homeworkPct}%</b><small>انتظام الواجب</small></div>
       <div class="metric"><b>${c.totalAttendance}</b><small>إجمالي الحصص</small></div>
@@ -626,7 +628,7 @@ function parentReportHTML(raw){
     <div class="parent-detail-grid-v40">
       <div class="mini-panel parent-panel-v40">
         <h3>الدرجات والامتحانات</h3>
-        ${grades.length?grades.map(g=>`<div class="report-list-row-v40"><div><b>${esc(g.exam||g.examTitle||'امتحان')}</b><small>${esc(g.date||g.submittedAt||'')}</small></div><span class="badge ${g.score!==null&&g.score!==undefined?'good':'warn'}">${g.score!==null&&g.score!==undefined?esc(g.score)+'%':'بانتظار التصحيح'}</span></div>`).join(''):'<p class="section-desc">لا توجد درجات مسجلة بعد.</p>'}
+        ${grades.length?grades.map(g=>`<div class="report-list-row-v40"><div><b>${esc(g.exam||g.examTitle||'امتحان')}</b><small>${esc(g.date||g.submittedAt||'')} · المستوى ${gradePercentage(g)??'-'}%</small></div><span class="badge ${g.score!==null&&g.score!==undefined?'good':'warn'}">${g.score!==null&&g.score!==undefined?esc(gradeMark(g)):'بانتظار التصحيح'}</span></div>`).join(''):'<p class="section-desc">لا توجد درجات مسجلة بعد.</p>'}
       </div>
       <div class="mini-panel parent-panel-v40">
         <h3>الواجبات والمتابعة</h3>
@@ -924,19 +926,21 @@ function parseExamQuestions(text){
   return blocks.map(block=>{
     const lines=block.split('\n').map(x=>x.trim()).filter(Boolean);
     const answerLine=lines.find(l=>/^(answer|correct|الإجابة|الاجابة|الإجابة الصحيحة|الاجابة الصحيحة)\s*[:=：-]?/i.test(l));
+    const pointsLine=lines.find(l=>/^(points?|marks?|score|الدرجة|درجات)\s*[:=：-]?/i.test(l));
     const answer=answerLine?cleanAnswerLine(answerLine):'';
+    const points=pointsLine?Number(toEnglishDigits(pointsLine).replace(/^[^:=：\-]*[:=：-]?\s*/i,'')):null;
     const optionObjs=[];
     const questionLines=[];
     lines.forEach(l=>{
-      if(l===answerLine) return;
+      if(l===answerLine||l===pointsLine) return;
       const opt=parseOptionLine(l);
       if(opt) optionObjs.push(opt); else questionLines.push(l.replace(/^س\d*\s*[:\-]?\s*/,'').trim());
     });
     const q=(questionLines[0]||lines[0]||'سؤال').replace(/^س\d*\s*[:\-]?\s*/,'').trim();
     if(optionObjs.length){
-      return {type:'mcq',question:q,options:optionObjs.map(o=>o.text),optionLabels:optionObjs.map(o=>o.label),answer};
+      return {type:'mcq',question:q,options:optionObjs.map(o=>o.text),optionLabels:optionObjs.map(o=>o.label),answer,points};
     }
-    return {type:'essay',question:q,answer:''};
+    return {type:'essay',question:q,answer:'',points};
   });
 }
 function hasSubmitted(examId, code){
@@ -945,6 +949,9 @@ function hasSubmitted(examId, code){
 }
 var currentExamStudent=null;
 var currentSecureExams=[];
+function examAttemptPercentage(attempt){const saved=Number(attempt?.percentage);if(Number.isFinite(saved))return Math.max(0,Math.min(100,Math.round(saved)));const score=Number(attempt?.score),max=Number(attempt?.maxScore||100);return Number.isFinite(score)&&max>0?Math.max(0,Math.min(100,Math.round(score/max*100))):null;}
+function examAttemptMark(attempt){return `${Number(attempt?.score||0)} من ${Number(attempt?.maxScore||100)}`;}
+function examCorrectionDetails(attempt){const answers=Array.isArray(attempt?.answers)?attempt.answers:[];if(!answers.length)return '';return `<details class="exam-correction-details"><summary>عرض تصحيح الأسئلة</summary><div class="exam-correction-list">${answers.map((answer,index)=>{const state=answer.correct===true?'correct':answer.correct===false?'wrong':'pending',label=state==='correct'?'إجابة صحيحة':state==='wrong'?'إجابة خاطئة':'تنتظر تصحيح المدرس';return `<article class="exam-correction-item ${state}"><header><b>السؤال ${index+1}</b><span class="badge ${state==='correct'?'good':state==='wrong'?'danger':'warn'}">${label}</span></header><h4>${esc(answer.question||'سؤال')}</h4><div><p><small>إجابتك</small>${esc(answer.answer||'لم تتم الإجابة')}</p><p><small>الإجابة الصحيحة</small>${esc(answer.correctAnswer||'تظهر بعد تصحيح المدرس')}</p></div><footer>${answer.awardedScore===null||answer.awardedScore===undefined?'قيد التصحيح':`${esc(answer.awardedScore)} من ${esc(answer.points||1)}`}</footer></article>`;}).join('')}</div></details>`;}
 function renderExamPortal(st,exams){
   const box=document.getElementById('examStudentResult');if(!box)return;
   currentExamStudent=normalizedStudent(st);currentSecureExams=Array.isArray(exams)?exams:currentSecureExams;
@@ -957,7 +964,7 @@ function renderExamPortal(st,exams){
     const actionText=done?'تم تسليم الامتحان':closed?'انتهى وقت الامتحان':upcoming?'لم يفتح بعد':draft?'متابعة الامتحان':'بدء الامتحان';
     return `<article class="exam-portal-card ${done?'completed':availability}" data-exam-countdown="${target||''}" data-exam-open-at="${openAt}" data-exam-close-at="${closeAt}" data-exam-countdown-mode="${availability}" data-exam-completed="${done?'1':'0'}"><div class="exam-card-top"><span class="iconbox" data-icon="clipboard"></span><div class="exam-card-badges"><span class="badge">${esc(ex.duration||20)} دقيقة</span><span class="badge">${esc(ex.questionCount||'-')} سؤال</span><span class="badge ${closed?'danger':upcoming?'warn':'good'}">${done?'تم التسليم':closed?'انتهى':upcoming?'قادم':'متاح'}</span>${ex.pdfUrl?'<span class="badge good">ملف PDF</span>':''}${draft&&!done?'<span class="badge warn">محاولة محفوظة</span>':''}</div></div><h3>${esc(ex.title)}</h3><p>${esc(ex.instructions||'اقرأ كل سؤال جيدًا قبل اختيار الإجابة.')}</p><p class="exam-status-message" data-countdown-message>${message}</p><div class="exam-card-countdown"><small data-countdown-label>${closed?'الحالة':upcoming?'يفتح بعد':closeAt?'الوقت المتبقي':'الحالة'}</small><b data-countdown-value>${closed?'انتهى الوقت':target?'--:--:--':'متاح الآن'}</b></div>${ex.pdfUrl?`<a class="small-btn exam-pdf-link" href="${esc(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer"><span data-icon="file-text"></span> فتح ملف الامتحان PDF</a>`:''}<button class="btn ${disabled?'ghost':'primary'} exam-start-btn" type="button" data-exam-id="${esc(ex.id)}" data-student-code="${esc(st.studentCode)}" ${disabled?'disabled aria-disabled="true"':''}><span data-icon="${done?'user-check':'clipboard'}"></span>${actionText}</button></article>`;
   }).join('');
-  const resultCards=attempts.length?attempts.map(a=>{const ready=a.score!==null&&a.score!==undefined&&a.score!=='';return `<article class="exam-result-card"><div><span class="record-eyebrow">${esc(formatPortalDate(a.submittedAt))}</span><h4>${esc(a.examTitle||'امتحان')}</h4><small>${a.needsManualReview?'ينتظر تصحيح الأسئلة المقالية':'تم التصحيح الآمن على الخادم'}</small></div><strong class="score-pill ${ready?scoreClass(a.score):'warn'}">${ready?esc(a.score)+'%':'قيد التصحيح'}</strong></article>`;}).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد محاولات بعد</h3><p>ستظهر نتائجك هنا بعد التسليم.</p></div>';
+  const resultCards=attempts.length?attempts.map(a=>{const ready=a.score!==null&&a.score!==undefined&&a.score!=='',pct=examAttemptPercentage(a);return `<article class="exam-result-card exam-result-detailed"><div><span class="record-eyebrow">${esc(formatPortalDate(a.submittedAt))}</span><h4>${esc(a.examTitle||'امتحان')}</h4><small>${a.needsManualReview?'تم تصحيح الاختياري وتنتظر الأسئلة المقالية':'تم التصحيح الآمن على الخادم'}</small>${ready&&pct!==null?`<small>مستواك في الامتحان: ${pct}%</small>`:''}</div><strong class="score-pill ${ready?scoreClass(pct):'warn'}">${ready?esc(examAttemptMark(a)):'قيد التصحيح'}</strong>${examCorrectionDetails(a)}</article>`;}).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد محاولات بعد</h3><p>ستظهر نتائجك هنا بعد التسليم.</p></div>';
   const statusCounts=currentSecureExams.reduce((out,exam)=>{out[examClientAvailability(exam)]=(out[examClientAvailability(exam)]||0)+1;return out;},{open:0,upcoming:0,closed:0});
   box.innerHTML=`<section class="exam-student-banner"><span class="student-avatar">${esc(String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join(''))}</span><div><small>امتحانات الطالب</small><h2>${esc(st.name)}</h2><p>${esc(st.grade||'')} <span>•</span> ${esc(st.studentCode)}</p></div></section><div class="exam-security-note"><span data-icon="user-check"></span><div><b>التصحيح مؤمّن</b><small>الإجابات النموذجية تظل محمية، ويتم التصحيح تلقائيًا وبأمان بعد التسليم.</small></div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="clipboard"></span> حالة الامتحانات</span><h3>اعرف موقف كل امتحان بوضوح</h3><small>متاح الآن: ${statusCounts.open} · قادم: ${statusCounts.upcoming} · انتهى: ${statusCounts.closed}</small></div><span class="badge">${currentSecureExams.length} امتحان</span></div><div class="exam-portal-grid">${available||'<div class="portal-empty"><span class="iconbox" data-icon="clipboard"></span><h3>لا توجد امتحانات حاليًا</h3><p>ستظهر امتحانات صفك هنا فور نشرها.</p></div>'}</div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="bar-chart"></span> النتائج</span><h3>سجل الامتحانات</h3></div><span class="badge good">${attempts.length} محاولة</span></div><div class="exam-results-grid">${resultCards}</div></div>`;
   box.querySelectorAll('.exam-start-btn').forEach(btn=>btn.addEventListener('click',()=>window.startExam(btn.dataset.examId,btn.dataset.studentCode)));
