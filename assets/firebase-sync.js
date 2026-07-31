@@ -269,7 +269,7 @@
 
     async function loadStaffRecordCollections(){
       const [attempts,grades,attendance,recitations,homeworks,studentTransferRequests]=await Promise.all([
-        getDocs('exam_attempts',3000).catch(()=>[]),getDocs('grades',5000).catch(()=>[]),getDocs('attendance',5000).catch(()=>[]),
+        db.collection('exam_attempts').orderBy('submittedAt','desc').limit(1000).get().then(snap=>snap.docs.map(doc=>({id:doc.id,...doc.data()}))).catch(()=>getDocs('exam_attempts',1000).catch(()=>[])),getDocs('grades',5000).catch(()=>[]),getDocs('attendance',5000).catch(()=>[]),
         getDocs('recitations',3000).catch(()=>[]),getDocs('homework_submissions',3000).catch(()=>[]),
         getDocs('student_transfer_requests',1000).catch(()=>[])
       ]);
@@ -482,6 +482,7 @@
       },
       rejectBooking:async code=>{if(!calls.rejectBooking)throw new Error('Secure booking rejection function is unavailable');return calls.rejectBooking({code:normalizeCode(code)});},
       subscribeToBookings:handler=>db.collection('bookings').orderBy('createdAt','desc').limit(100).onSnapshot(snap=>handler(snap.docs.map(doc=>({id:doc.id,...doc.data()})),snap.docChanges()),error=>console.warn('booking-listener',error)),
+      subscribeToExamAttempts:handler=>db.collection('exam_attempts').orderBy('submittedAt','desc').limit(500).onSnapshot(snap=>handler(snap.docs.map(doc=>({id:doc.id,...doc.data()})),snap.docChanges()),error=>console.warn('exam-attempts-listener',error)),
       registerTeacherPushToken:async()=>{if(!cfg.messagingVapidKey||!firebase.messaging||!calls.registerTeacherPushToken)throw new Error('VAPID_KEY_REQUIRED');const registration=await navigator.serviceWorker.ready;const token=await firebase.messaging().getToken({vapidKey:cfg.messagingVapidKey,serviceWorkerRegistration:registration});if(!token)throw new Error('TOKEN_UNAVAILABLE');return calls.registerTeacherPushToken({token,userAgent:navigator.userAgent});},
       getBookingStatus:async code=>{
         const normalized=normalizeCode(code);

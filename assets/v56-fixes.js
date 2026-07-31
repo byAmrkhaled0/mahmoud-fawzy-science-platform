@@ -152,6 +152,64 @@
     if(document.getElementById('addStudentForm'))enhanceStudentTools();
   }
 
+  let visibleExamResults=60;
+  function examResultPercent(attempt){
+    const direct=Number(attempt.percentage);
+    if(Number.isFinite(direct))return Math.max(0,Math.min(100,direct));
+    const score=Number(attempt.score||0),max=Number(attempt.maxScore||attempt.totalScore||0);
+    return max>0?Math.max(0,Math.min(100,(score/max)*100)):0;
+  }
+  function examResultStatus(attempt){
+    if(attempt.manualReviewRequired&&!attempt.correctedAt)return {key:'pending',label:'ينتظر التصحيح'};
+    return {key:'done',label:'تم التصحيح'};
+  }
+  function examResultDate(value){
+    const raw=value?.toDate?.()||value;
+    const date=raw?new Date(raw):null;
+    return date&&!Number.isNaN(date.getTime())?date.toLocaleString('ar-EG',{dateStyle:'short',timeStyle:'short'}):'—';
+  }
+  function renderExamResultRows(){
+    const host=document.getElementById('examResultsRows');
+    if(!host)return;
+    const query=String(document.getElementById('examResultsSearch')?.value||'').trim().toLowerCase();
+    const exam=document.getElementById('examResultsExam')?.value||'';
+    const grade=document.getElementById('examResultsGrade')?.value||'';
+    const status=document.getElementById('examResultsStatus')?.value||'';
+    const rows=(adminData.examAttempts||[]).slice().sort((a,b)=>new Date(b.submittedAt?.toDate?.()||b.submittedAt||0)-new Date(a.submittedAt?.toDate?.()||a.submittedAt||0)).filter(item=>{
+      const state=examResultStatus(item).key;
+      const haystack=`${item.studentName||''} ${item.studentCode||''} ${item.examTitle||item.title||''} ${item.grade||''} ${item.group||''}`.toLowerCase();
+      return (!query||haystack.includes(query))&&(!exam||String(item.examId||item.examTitle||'')===exam)&&(!grade||String(item.grade||'')===grade)&&(!status||state===status);
+    });
+    host.innerHTML=rows.length?rows.slice(0,visibleExamResults).map(item=>{
+      const state=examResultStatus(item),percent=examResultPercent(item),name=item.studentName||item.studentCode||'طالب';
+      const score=typeof examAttemptScoreText==='function'?examAttemptScoreText(item):`${Number(item.score||0)} من ${Number(item.maxScore||item.totalScore||0)}`;
+      return `<article class="exam-result-row" data-attempt-id="${safe(item.id||'')}"><div class="exam-result-student"><span class="exam-result-avatar">${safe(name.trim().charAt(0)||'ط')}</span><div><b>${safe(name)}</b><small>كود ${safe(item.studentCode||'—')} · ${safe(item.grade||'بدون صف')}${item.group?` · ${safe(item.group)}`:''}</small></div></div><div class="exam-result-exam"><b>${safe(item.examTitle||item.title||'امتحان')}</b><small>${safe(examResultDate(item.submittedAt))}</small></div><div class="exam-result-score"><b>${safe(score)}</b><small>${percent.toFixed(1)}%</small></div><span class="exam-result-status ${state.key}">${state.label}</span><div class="exam-result-actions"><button type="button" class="small-btn primary" onclick="correctAttempt('${safe(item.id||'')}')">عرض التصحيح</button>${item.parentPhone||item.phone?`<button type="button" class="small-btn ghost" onclick="sendExamGradeToParent('${safe(item.id||'')}')">واتساب</button>`:''}</div></article>`;
+    }).join(''):`<div class="exam-results-empty"><b>لا توجد نتائج مطابقة</b><small>ستظهر محاولة الطالب هنا فور تسليم الامتحان.</small></div>`;
+    const more=document.getElementById('examResultsMore');
+    if(more){more.hidden=rows.length<=visibleExamResults;more.textContent=`عرض المزيد (${rows.length-visibleExamResults})`;}
+    const count=document.getElementById('examResultsVisibleCount');if(count)count.textContent=`${rows.length} نتيجة`;
+  }
+  function enhanceExamResultsDashboard(){
+    const layout=document.querySelector('.exam-admin-layout');
+    if(!layout||document.getElementById('examResultsDashboard'))return;
+    layout.parentElement?.querySelectorAll('details.admin-collapsible').forEach(item=>item.remove());
+    const attempts=(adminData.examAttempts||[]),done=attempts.filter(item=>examResultStatus(item).key==='done'),pending=attempts.length-done.length;
+    const average=attempts.length?attempts.reduce((sum,item)=>sum+examResultPercent(item),0)/attempts.length:0;
+    const exams=[...new Map(attempts.map(item=>[String(item.examId||item.examTitle||''),item.examTitle||item.title||'امتحان'])).entries()].filter(([id])=>id);
+    const grades=[...new Set(attempts.map(item=>String(item.grade||'')).filter(Boolean))];
+    layout.insertAdjacentHTML('afterend',`<section class="exam-results-dashboard card" id="examResultsDashboard"><div class="exam-results-head"><div><span class="kicker">النتائج المباشرة</span><h3>الطلاب الذين أدّوا الامتحانات</h3><p>تظهر النتائج تلقائيًا فور التسليم، بالدرجة الفعلية من الدرجة النهائية.</p></div><b id="examResultsVisibleCount">${attempts.length} نتيجة</b></div><div class="exam-results-kpis"><article><small>إجمالي المحاولات</small><b>${attempts.length}</b></article><article><small>تم التصحيح</small><b>${done.length}</b></article><article><small>ينتظر التصحيح</small><b>${pending}</b></article><article><small>متوسط المستوى</small><b>${average.toFixed(1)}%</b></article></div><div class="exam-results-filters"><label class="exam-results-search"><span>بحث بالطالب أو الكود</span><input id="examResultsSearch" type="search" placeholder="اكتب الاسم أو الكود..." oninput="filterAdminExamResults()"></label><label><span>الامتحان</span><select id="examResultsExam" onchange="filterAdminExamResults()"><option value="">كل الامتحانات</option>${exams.map(([id,title])=>`<option value="${safe(id)}">${safe(title)}</option>`).join('')}</select></label><label><span>الصف</span><select id="examResultsGrade" onchange="filterAdminExamResults()"><option value="">كل الصفوف</option>${grades.map(value=>`<option value="${safe(value)}">${safe(value)}</option>`).join('')}</select></label><label><span>الحالة</span><select id="examResultsStatus" onchange="filterAdminExamResults()"><option value="">كل الحالات</option><option value="done">تم التصحيح</option><option value="pending">ينتظر التصحيح</option></select></label></div><div class="exam-results-columns" aria-hidden="true"><span>الطالب</span><span>الامتحان</span><span>الدرجة</span><span>الحالة</span><span>الإجراء</span></div><div class="exam-results-rows" id="examResultsRows"></div><button class="btn ghost exam-results-more" id="examResultsMore" type="button" onclick="showMoreAdminExamResults()" hidden>عرض المزيد</button></section>`);
+    renderExamResultRows();
+  }
+  window.filterAdminExamResults=function(){visibleExamResults=60;renderExamResultRows();};
+  window.showMoreAdminExamResults=function(){visibleExamResults+=60;renderExamResultRows();};
+  function installExamResultsDashboard(){
+    if(typeof renderExams!=='function'||renderExams.examResultsEnhanced)return;
+    const base=renderExams;
+    renderExams=function(){base();requestAnimationFrame(enhanceExamResultsDashboard);};
+    renderExams.examResultsEnhanced=true;
+    if(document.querySelector('.exam-admin-layout'))requestAnimationFrame(enhanceExamResultsDashboard);
+  }
+
   function closeOpenMenus(event){
     if(event.target.closest('.v56-student-actions details'))return;
     document.querySelectorAll('.v56-student-actions details[open]').forEach(item=>item.removeAttribute('open'));
@@ -162,7 +220,7 @@
     removeLegacyMobileBars();
     installCleanScrollTop();
     installPublicMobileMenu();
-    setTimeout(()=>{applyAdminStudentList();installStudentPageEnhancement();installAdminDrawerActions();},30);
+    setTimeout(()=>{applyAdminStudentList();installStudentPageEnhancement();installAdminDrawerActions();installExamResultsDashboard();},80);
     const adminMenuObserver=new MutationObserver(()=>{removeLegacyMobileBars();installAdminDrawerActions();if(document.querySelector('.v56-admin-drawer-actions'))adminMenuObserver.disconnect();});
     adminMenuObserver.observe(document.body,{childList:true,subtree:true});
     document.addEventListener('click',closeOpenMenus);

@@ -36,3 +36,20 @@ test('student, parent and admin interfaces expose marks, percentages and detaile
   assert.match(functions, /answers: staffAnswers/);
   assert.match(functions, /percentage/);
 });
+
+test('teacher exam results update live and remain responsive on mobile', () => {
+  const root = path.resolve(__dirname, '..');
+  const app = fs.readFileSync(path.join(root, 'assets/app.js'), 'utf8');
+  const admin = fs.readFileSync(path.join(root, 'assets/admin.js'), 'utf8');
+  const sync = fs.readFileSync(path.join(root, 'assets/firebase-sync.js'), 'utf8');
+  const fixes = fs.readFileSync(path.join(root, 'assets/v56-fixes.js'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'assets/v60.css'), 'utf8');
+  assert.match(sync, /subscribeToExamAttempts/);
+  assert.match(admin, /startExamAttemptUpdates/);
+  assert.match(admin, /admin-row-removing/);
+  assert.match(fixes, /الطلاب الذين أدّوا الامتحانات/);
+  assert.match(fixes, /examResultsSearch/);
+  assert.match(fixes, /examAttemptScoreText/);
+  assert.match(css, /@media\(max-width:560px\).*exam-results-dashboard/s);
+  assert.match(app, /requestAnimationFrame\(\(\)=>setTimeout\(\(\)=>renderExamPortal/);
+});
