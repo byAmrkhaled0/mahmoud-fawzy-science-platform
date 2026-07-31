@@ -19,6 +19,7 @@ const {
   scheduleMatchesStudent,
   learningTargetMatchesStudent
 } = require('./lib/academic-targeting');
+const { getExamScheduleState } = require('./lib/exam-schedule');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'europe-west1', maxInstances: 10, memory: '256MiB' });
@@ -1099,21 +1100,11 @@ function examMatchesStudent(exam, student) {
 }
 
 function examIsOpen(exam, now = Date.now()) {
-  if (exam.active === false) return false;
-  const openAt = exam.openAt ? new Date(exam.openAt).getTime() : 0;
-  const closeAt = exam.closeAt ? new Date(exam.closeAt).getTime() : 0;
-  if (openAt && Number.isFinite(openAt) && now < openAt) return false;
-  if (closeAt && Number.isFinite(closeAt) && now >= closeAt) return false;
-  return true;
+  return getExamScheduleState(exam, now).state === 'open';
 }
 
 function examAvailability(exam, now = Date.now()) {
-  if (exam.active === false) return 'closed';
-  const openAt = exam.openAt ? new Date(exam.openAt).getTime() : 0;
-  const closeAt = exam.closeAt ? new Date(exam.closeAt).getTime() : 0;
-  if (openAt && Number.isFinite(openAt) && now < openAt) return 'upcoming';
-  if (closeAt && Number.isFinite(closeAt) && now >= closeAt) return 'closed';
-  return 'open';
+  return getExamScheduleState(exam, now).state;
 }
 
 exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
@@ -1143,14 +1134,16 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
       questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length),
       availability: examAvailability(exam, now)
     }))
-    .filter(exam => exam.availability !== 'closed')
     .sort((a, b) => {
-      const aTime = new Date(a.openAt || 0).getTime() || 0;
-      const bTime = new Date(b.openAt || 0).getTime() || 0;
-      return aTime - bTime;
+      const order = { open: 0, upcoming: 1, closed: 2 };
+      const stateOrder = (order[a.availability] ?? 3) - (order[b.availability] ?? 3);
+      if (stateOrder) return stateOrder;
+      const aTime = new Date(a.availability === 'closed' ? a.closeAt || 0 : a.openAt || 0).getTime() || 0;
+      const bTime = new Date(b.availability === 'closed' ? b.closeAt || 0 : b.openAt || 0).getTime() || 0;
+      return a.availability === 'closed' ? bTime - aTime : aTime - bTime;
     });
   const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
-  return { student: portalResponse(found.data, attempts, records), exams };
+  return { student: portalResponse(found.data, attempts, records), exams, serverNow: now };
 });
 
 exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
@@ -1161,7 +1154,9 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
   const examSnap = await db.collection('exams').doc(examId).get();
   if (!examSnap.exists) throw new HttpsError('not-found', 'الامتحان غير موجود.');
   const exam = { id: examSnap.id, ...examSnap.data() };
-  if (!examIsOpen(exam)) throw new HttpsError('failed-precondition', 'الامتحان غير متاح في الوقت الحالي.');
+  const schedule = getExamScheduleState(exam);
+  if (schedule.state === 'upcoming') throw new HttpsError('failed-precondition', 'الامتحان لم يبدأ بعد. ترقّب الموعد وذاكر ببراعة.');
+  if (schedule.state === 'closed') throw new HttpsError('deadline-exceeded', 'انتهى وقت الامتحان، لم تستطع أداء الامتحان هذه المرة.');
   if (!examMatchesStudent(exam, found.data)) {
     throw new HttpsError('permission-denied', 'هذا الامتحان غير مخصص لصفك أو مجموعتك أو عامك الدراسي.');
   }
@@ -1171,6 +1166,11 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
 
   const durationMinutes = Math.max(1, Math.min(240, Number(exam.duration || 20)));
   const now = Date.now();
+  const sessionExpiresAt = Math.min(
+    now + durationMinutes * 60 * 1000,
+    schedule.closeAtMs || Number.POSITIVE_INFINITY
+  );
+  if (sessionExpiresAt <= now) throw new HttpsError('deadline-exceeded', 'انتهى وقت الامتحان، لم تستطع أداء الامتحان هذه المرة.');
   const sessionId = cleanDocId(`${examId}_${studentCode}`);
   const sessionRef = db.collection('exam_sessions').doc(sessionId);
   const lockRef = db.collection('exam_locks').doc(sessionId);
@@ -1216,7 +1216,7 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
       status: 'started',
       questions,
       startedAt: Timestamp.fromMillis(now),
-      expiresAt: Timestamp.fromMillis(now + durationMinutes * 60 * 1000),
+      expiresAt: Timestamp.fromMillis(sessionExpiresAt),
       deleteAt: Timestamp.fromMillis(now + 30 * 24 * 60 * 60 * 1000),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
@@ -1258,7 +1258,7 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
   if (session.studentCode !== studentCode) throw new HttpsError('permission-denied', 'كود الطالب لا يطابق جلسة الامتحان.');
   if (session.status === 'submitted' && session.result) return session.result;
   const expiresAt = session.expiresAt && session.expiresAt.toMillis ? session.expiresAt.toMillis() : 0;
-  if (expiresAt && Date.now() > expiresAt + 120 * 1000 && !autoSubmit) throw new HttpsError('deadline-exceeded', 'انتهى وقت الامتحان.');
+  if (expiresAt && Date.now() > expiresAt + 120 * 1000) throw new HttpsError('deadline-exceeded', 'انتهى وقت الامتحان.');
   const examSnap = await db.collection('exams').doc(session.examId).get();
   const exam = examSnap.exists ? { id: examSnap.id, ...examSnap.data() } : {
     id: session.examId,

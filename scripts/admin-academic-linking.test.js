@@ -121,13 +121,15 @@ test('teacher can publish homework as questions or as an uploaded file', () => {
 test('exam countdowns expire once without a reload loop', () => {
   const appSource = fs.readFileSync(path.resolve(__dirname, '../assets/app.js'), 'utf8');
   const functionsSource = fs.readFileSync(path.resolve(__dirname, '../functions/index.js'), 'utf8');
+  const examScheduleSource = fs.readFileSync(path.resolve(__dirname, '../functions/lib/exam-schedule.js'), 'utf8');
   assert.match(appSource, /data-exam-countdown-mode/);
-  assert.match(appSource, /countdownExpired==='1'/);
+  assert.match(appSource, /dataset\.countdownExpired='1'/);
   const countdownSource=appSource.match(/function startLiveCountdowns[\s\S]*?var parentQrScanner/)?.[0] || '';
   assert.doesNotMatch(countdownSource, /location\.reload/);
   assert.match(countdownSource, /action\.disabled=false/);
   assert.match(countdownSource, /action\.disabled=true/);
-  assert.match(functionsSource, /now >= closeAt/);
+  assert.match(functionsSource, /getExamScheduleState/);
+  assert.match(examScheduleSource, /safeNow >= close\.ms/);
   assert.match(source, /__academicCountdownRefreshPending/);
   assert.doesNotMatch(fs.readFileSync(path.resolve(__dirname, '../assets/v53-upgrades.js'), 'utf8'), /setTimeout\(\(\)=>currentSection==='exams'&&renderExams\(\),1100\)/);
 });

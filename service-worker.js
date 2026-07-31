@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5945";
+const CACHE_NAME = "mf-science-v5946";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
