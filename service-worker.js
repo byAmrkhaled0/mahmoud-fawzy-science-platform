@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5948";
+const CACHE_NAME = "mf-science-v5949-unified-exam-editor";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",

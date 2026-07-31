@@ -241,6 +241,11 @@ if (!read('assets/v59.css').includes('.absence-warning-card') || !read('assets/v
 if (fs.existsSync(path.join(root,'online.html')) || fs.existsSync(path.join(root,'assets/online.js')) || /exports\.(?:getOnlineContentForStudent|recordLectureProgress)\b/.test(functionsSource)) fail('Online-study components were added to the center-only Mahmoud release');
 if (!failures.some(x => x.includes('workflow is incomplete') || x.includes('V59 responsive') || x.includes('Online-study'))) ok('Center-only V59 workflows and online exclusion passed');
 
+if (!adminSourceCode.includes("editAcademicExamV5949('${safe(item.id)}')") || !adminSourceCode.includes('تم تعديل الامتحان والوقت مستمر') || !adminSourceCode.includes('values.id=editId||')) fail('In-place running exam editing is incomplete');
+if (!adminSourceCode.includes('إضافة سؤال تحت السؤال الحالي') || adminSourceCode.indexOf('id="${listId}" class="exam-questions-builder"') > adminSourceCode.indexOf("onclick=\"addExamQuestion('${listId}')\"")) fail('The unified exam add-question control is not below the question list');
+if (!read('assets/v60.css').includes('.exam-add-question-bottom') || !read('assets/v60.css').includes('.academic-content-row>.small-btn.primary')) fail('Unified academic exam mobile controls are incomplete');
+if (!failures.some(x => x.includes('running exam') || x.includes('add-question') || x.includes('academic exam mobile'))) ok('Unified academics exam editing and bottom question control passed');
+
 if (failures.length) {
   console.error('\nVerification failed:');
   failures.forEach(item => console.error(`- ${item}`));
