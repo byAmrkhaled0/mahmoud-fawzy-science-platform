@@ -91,6 +91,8 @@ test('unified academic composer stays on one page and supports all question type
   assert.match(source, /value="essay">سؤال مقالي/);
   assert.match(source, /saveUnifiedAcademicExam/);
   assert.match(source, /saveUnifiedAcademicAssignment/);
+  assert.match(source, /assignment:'academics',exam:'academics'/);
+  assert.match(source, /trigger\?\.click\(\)/);
 });
 
 test('unified forms persist grade and group targeting with schedule fields', () => {
@@ -107,6 +109,23 @@ test('teacher can publish a complete PDF-only exam without building questions', 
   assert.match(source, /pdfOnly=form\.elements\.sourceMode\.value==='pdf'/);
   assert.match(source, /أجب عن أسئلة ملف الامتحان PDF بالترتيب/);
   assert.match(source, /values\.pdfOnly=pdfOnly/);
+});
+
+test('teacher can publish homework as questions or as an uploaded file', () => {
+  assert.match(source, /id="unifiedAssignmentForm"[^>]*novalidate/);
+  assert.match(source, /if\(!file&&!count\)return aToast/);
+  assert.match(source, /values\.questions=text\?text\.split/);
+  assert.match(source, /values\.questionCount=values\.questions\.length/);
+});
+
+test('exam countdowns expire once without a reload loop', () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '../assets/app.js'), 'utf8');
+  const functionsSource = fs.readFileSync(path.resolve(__dirname, '../functions/index.js'), 'utf8');
+  assert.match(appSource, /data-exam-countdown-mode/);
+  assert.match(appSource, /countdownExpired==='1'/);
+  assert.doesNotMatch(appSource.match(/function startLiveCountdowns[\s\S]*?var parentQrScanner/)?.[0] || '', /setTimeout\(\(\)=>location\.reload\(\),900\)/);
+  assert.match(functionsSource, /now >= closeAt/);
+  assert.match(source, /__academicCountdownRefreshPending/);
 });
 
 test('student and attendance administration are mobile-first and grade-linked', () => {

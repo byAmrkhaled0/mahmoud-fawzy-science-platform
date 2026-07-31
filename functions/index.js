@@ -1103,7 +1103,7 @@ function examIsOpen(exam, now = Date.now()) {
   const openAt = exam.openAt ? new Date(exam.openAt).getTime() : 0;
   const closeAt = exam.closeAt ? new Date(exam.closeAt).getTime() : 0;
   if (openAt && Number.isFinite(openAt) && now < openAt) return false;
-  if (closeAt && Number.isFinite(closeAt) && now > closeAt) return false;
+  if (closeAt && Number.isFinite(closeAt) && now >= closeAt) return false;
   return true;
 }
 
@@ -1112,7 +1112,7 @@ function examAvailability(exam, now = Date.now()) {
   const openAt = exam.openAt ? new Date(exam.openAt).getTime() : 0;
   const closeAt = exam.closeAt ? new Date(exam.closeAt).getTime() : 0;
   if (openAt && Number.isFinite(openAt) && now < openAt) return 'upcoming';
-  if (closeAt && Number.isFinite(closeAt) && now > closeAt) return 'closed';
+  if (closeAt && Number.isFinite(closeAt) && now >= closeAt) return 'closed';
   return 'open';
 }
 
