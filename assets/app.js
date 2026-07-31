@@ -11,7 +11,7 @@ var LAST_EXAM_CODE_KEY = 'mf_last_exam_code';
 var EXAM_DRAFT_PREFIX = 'mf_exam_draft_v2_';
 var PENDING_BOOKING_REQUEST_KEY = 'mf_pending_booking_request_v1';
 var cloudSaveTimer = null;
-var MF_ASSET_VERSION = '59.2.1';
+var MF_ASSET_VERSION = '59.4.0';
 var mfLazyScriptPromises = Object.create(null);
 
 function loadLazyScript(key, source, readyCheck){
@@ -439,26 +439,46 @@ async function loadStudentForPortal(code){
 async function setupStudent(){
   const form=document.getElementById('studentSearchForm'); if(!form) return;
   const input=form.querySelector('[name="query"],#studentQuery');
-  const quickCode=toEnglishDigits(new URLSearchParams(location.search).get('code')||'').trim().toUpperCase();
-  safeStorageRemove(LAST_STUDENT_CODE_KEY);
+  const quickCode=toEnglishDigits(new URLSearchParams(location.search).get('code')||safeStorageGet(LAST_STUDENT_CODE_KEY)||'').trim().toUpperCase();
   if(input && quickCode)input.value=quickCode;
   input?.addEventListener('input',()=>{input.value=input.value.toUpperCase().replace(/\s+/g,'');});
   form.addEventListener('submit', async e=>{
     e.preventDefault();
     const code=toEnglishDigits(input?.value).trim().toUpperCase(); const box=document.getElementById('studentResult'); const button=form.querySelector('[type="submit"]');
     if(!code) return toast('اكتب كود الطالب أولًا');
-    safeStorageRemove(LAST_STUDENT_CODE_KEY);
     button?.classList.add('is-loading'); if(button)button.disabled=true; form.setAttribute('aria-busy','true');
     box.innerHTML='<div class="portal-loading"><span></span><b>جاري تحميل ملف الطالب...</b><small>لحظات بسيطة</small></div>';
     try{
       const st=await loadStudentForPortal(code);
       if(!st){box.innerHTML=`<div class="portal-empty portal-empty-large"><span class="iconbox" data-icon="search"></span><h3>الكود غير صحيح</h3><p>راجع الكود المكتوب وحاول مرة أخرى، مع التأكد من الحروف والأرقام.</p><button class="btn ghost" type="button" onclick="document.getElementById('studentQuery')?.focus()">إعادة المحاولة</button></div>`; hydrateIcons(); return;}
+      safeStorageSet(LAST_STUDENT_CODE_KEY,code);safeStorageSet(LAST_EXAM_CODE_KEY,code);
       box.innerHTML=studentProfileHTML(st,false); bindStudentDashboard(); bindHomeworkForms(); bindStudentTransferForms(form,code); hydrateIcons();
+      form.hidden=true;
+      const dashboard=await window.MFCloud?.getExamDashboard?.(code).catch(()=>null);
+      if(dashboard?.exams)renderStudentUpcomingExam(dashboard.exams,code);
       box.scrollIntoView({behavior:'smooth',block:'start'});
     }catch(err){const raw=String(err?.code||'')+' '+String(err?.message||'');const message=/not-found/i.test(raw)?'كود الطالب غير موجود أو لم يُعتمد بعد':/internal|unavailable|failed-precondition|function.*unavailable/i.test(raw)?'خدمة بوابة الطالب غير متاحة حاليًا':firebaseFriendlyError(err,'تعذر تحميل بيانات الطالب');box.innerHTML=dataErrorHTML(message);hydrateIcons();}
     finally{button?.classList.remove('is-loading'); if(button)button.disabled=false; form.removeAttribute('aria-busy');}
   });
   if(quickCode&&!form.dataset.autoLoaded){form.dataset.autoLoaded='true';setTimeout(()=>form.requestSubmit(),120);}
+}
+function examCountdownText(target){
+  const left=Math.max(0,Number(target||0)-Date.now()),seconds=Math.ceil(left/1000),days=Math.floor(seconds/86400),hours=Math.floor(seconds%86400/3600),minutes=Math.floor(seconds%3600/60),secs=seconds%60;
+  return days?`${days} يوم و ${hours} ساعة`:`${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+}
+function renderStudentUpcomingExam(exams,code){
+  const panel=document.querySelector('[data-student-panel="overview"]');if(!panel)return;
+  const exam=(exams||[]).find(item=>item.availability==='open')||(exams||[]).find(item=>item.availability==='upcoming');if(!exam)return;
+  const openAt=new Date(exam.openAt||0).getTime(),closeAt=new Date(exam.closeAt||0).getTime();
+  panel.insertAdjacentHTML('afterbegin',`<article class="student-next-exam ${exam.availability}" data-student-exam-countdown="${exam.availability==='upcoming'?openAt:closeAt}"><span class="iconbox" data-icon="clipboard"></span><div><small>${exam.availability==='upcoming'?'الامتحان هيفتح بعد':'الامتحان متاح والوقت المتبقي لإغلاقه'}</small><h3>${esc(exam.title)}</h3><b data-countdown-value>--:--:--</b></div><a class="btn primary" href="exams.html?code=${encodeURIComponent(code)}&exam=${encodeURIComponent(exam.id)}">${exam.availability==='open'?'دخول الامتحان':'عرض الموعد'}</a></article>`);
+  startLiveCountdowns(panel);
+}
+function startLiveCountdowns(root=document){
+  root.querySelectorAll('[data-student-exam-countdown],[data-exam-countdown]').forEach(node=>{
+    clearInterval(node.__countdownTimer);const target=Number(node.dataset.studentExamCountdown||node.dataset.examCountdown||0),value=node.querySelector('[data-countdown-value]');
+    const tick=()=>{if(value)value.textContent=target?examCountdownText(target):'مفتوح الآن';if(target&&Date.now()>=target){clearInterval(node.__countdownTimer);setTimeout(()=>location.reload(),900);}};
+    tick();node.__countdownTimer=setInterval(tick,1000);
+  });
 }
 var parentQrScanner = null;
 var lastParentStudent = null;
@@ -892,12 +912,15 @@ function renderExamPortal(st,exams){
   const available=currentSecureExams.map(ex=>{
     const done=attempts.some(a=>String(a.examId)===String(ex.id)&&a.status!=='started')&&!ex.allowRetake;
     const draft=readExamDraft(ex.id,st.studentCode);
-    return `<article class="exam-portal-card ${done?'completed':''}"><div class="exam-card-top"><span class="iconbox" data-icon="clipboard"></span><div class="exam-card-badges"><span class="badge">${esc(ex.duration||20)} دقيقة</span><span class="badge">${esc(ex.questionCount||'-')} سؤال</span>${ex.pdfUrl?'<span class="badge good">ملف PDF</span>':''}${draft&&!done?'<span class="badge warn">محاولة محفوظة</span>':''}</div></div><h3>${esc(ex.title)}</h3><p>${esc(ex.instructions||'اقرأ كل سؤال جيدًا قبل اختيار الإجابة.')}</p>${ex.pdfUrl?`<a class="small-btn exam-pdf-link" href="${esc(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer"><span data-icon="file-text"></span> فتح ملف الامتحان PDF</a>`:''}<button class="btn ${done?'ghost':'primary'} exam-start-btn" type="button" data-exam-id="${esc(ex.id)}" data-student-code="${esc(st.studentCode)}" ${done?'disabled':''}><span data-icon="${done?'user-check':'clipboard'}"></span>${done?'تم تسليم الامتحان':draft?'متابعة الامتحان':'بدء الامتحان'}</button></article>`;
+    const upcoming=ex.availability==='upcoming',target=upcoming?new Date(ex.openAt||0).getTime():new Date(ex.closeAt||0).getTime();
+    return `<article class="exam-portal-card ${done?'completed':''} ${upcoming?'upcoming':''}" data-exam-countdown="${target||''}"><div class="exam-card-top"><span class="iconbox" data-icon="clipboard"></span><div class="exam-card-badges"><span class="badge">${esc(ex.duration||20)} دقيقة</span><span class="badge">${esc(ex.questionCount||'-')} سؤال</span>${ex.pdfUrl?'<span class="badge good">ملف PDF</span>':''}${draft&&!done?'<span class="badge warn">محاولة محفوظة</span>':''}</div></div><h3>${esc(ex.title)}</h3><p>${esc(ex.instructions||'اقرأ كل سؤال جيدًا قبل اختيار الإجابة.')}</p><div class="exam-card-countdown"><small>${upcoming?'يفتح بعد':'يغلق بعد'}</small><b data-countdown-value>--:--:--</b></div>${ex.pdfUrl?`<a class="small-btn exam-pdf-link" href="${esc(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer"><span data-icon="file-text"></span> فتح ملف الامتحان PDF</a>`:''}<button class="btn ${done||upcoming?'ghost':'primary'} exam-start-btn" type="button" data-exam-id="${esc(ex.id)}" data-student-code="${esc(st.studentCode)}" ${done||upcoming?'disabled':''}><span data-icon="${done?'user-check':'clipboard'}"></span>${done?'تم تسليم الامتحان':upcoming?'لم يفتح بعد':draft?'متابعة الامتحان':'بدء الامتحان'}</button></article>`;
   }).join('');
   const resultCards=attempts.length?attempts.map(a=>{const ready=a.score!==null&&a.score!==undefined&&a.score!=='';return `<article class="exam-result-card"><div><span class="record-eyebrow">${esc(formatPortalDate(a.submittedAt))}</span><h4>${esc(a.examTitle||'امتحان')}</h4><small>${a.needsManualReview?'ينتظر تصحيح الأسئلة المقالية':'تم التصحيح الآمن على الخادم'}</small></div><strong class="score-pill ${ready?scoreClass(a.score):'warn'}">${ready?esc(a.score)+'%':'قيد التصحيح'}</strong></article>`;}).join(''):'<div class="portal-empty"><span class="iconbox" data-icon="bar-chart"></span><h3>لا توجد محاولات بعد</h3><p>ستظهر نتائجك هنا بعد التسليم.</p></div>';
   box.innerHTML=`<section class="exam-student-banner"><span class="student-avatar">${esc(String(st.name||'ط').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join(''))}</span><div><small>امتحانات الطالب</small><h2>${esc(st.name)}</h2><p>${esc(st.grade||'')} <span>•</span> ${esc(st.studentCode)}</p></div></section><div class="exam-security-note"><span data-icon="user-check"></span><div><b>التصحيح مؤمّن</b><small>الإجابات النموذجية تظل محمية، ويتم التصحيح تلقائيًا وبأمان بعد التسليم.</small></div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="clipboard"></span> المتاح الآن</span><h3>الامتحانات المتاحة</h3></div><span class="badge">${currentSecureExams.length} امتحان</span></div><div class="exam-portal-grid">${available||'<div class="portal-empty"><span class="iconbox" data-icon="clipboard"></span><h3>لا توجد امتحانات حاليًا</h3><p>ستظهر امتحانات صفك هنا فور نشرها.</p></div>'}</div></div><div class="exam-portal-section"><div class="student-panel-title"><div><span class="kicker"><span data-icon="bar-chart"></span> النتائج</span><h3>سجل الامتحانات</h3></div><span class="badge good">${attempts.length} محاولة</span></div><div class="exam-results-grid">${resultCards}</div></div>`;
   box.querySelectorAll('.exam-start-btn').forEach(btn=>btn.addEventListener('click',()=>window.startExam(btn.dataset.examId,btn.dataset.studentCode)));
-  hydrateIcons();
+  startLiveCountdowns(box);hydrateIcons();
+  const directId=new URLSearchParams(location.search).get('exam');
+  if(directId&&!box.dataset.directStarted){const direct=box.querySelector(`.exam-start-btn[data-exam-id="${CSS.escape(directId)}"]:not([disabled])`);if(direct){box.dataset.directStarted='true';setTimeout(()=>direct.click(),150);}}
 }
 function setupExamsPage(){
   const form=document.getElementById('examCodeForm');if(!form)return;
@@ -905,12 +928,13 @@ function setupExamsPage(){
   if(saved&&input){input.value=saved;if(remember)remember.checked=true;}
   form.addEventListener('submit',async e=>{
     e.preventDefault();const code=toEnglishDigits(input.value).trim().toUpperCase();const box=document.getElementById('examStudentResult');const button=form.querySelector('button[type="submit"]');
-    if(!code)return;if(remember?.checked){safeStorageSet(LAST_EXAM_CODE_KEY,code);safeStorageSet(LAST_STUDENT_CODE_KEY,code);}else safeStorageRemove(LAST_EXAM_CODE_KEY);
+    if(!code)return;safeStorageSet(LAST_EXAM_CODE_KEY,code);safeStorageSet(LAST_STUDENT_CODE_KEY,code);
     box.innerHTML='<div class="skeleton" style="height:180px"></div>';button?.classList.add('is-loading');if(button)button.disabled=true;
     try{
       const dashboard=await window.MFCloud?.getExamDashboard?.(code);
       if(!dashboard?.student)throw new Error('not-found');
       renderExamPortal(dashboard.student,dashboard.exams||[]);
+      form.hidden=true;
     }catch(err){box.innerHTML=`<div class="portal-empty"><span class="iconbox" data-icon="search"></span><h3>تعذر فتح الامتحانات</h3><p>${esc(firebaseFriendlyError(err,'تأكد من كود الطالب واتصال الإنترنت ثم حاول مرة أخرى.'))}</p></div>`;hydrateIcons();}
     finally{button?.classList.remove('is-loading');if(button)button.disabled=false;}
   });
@@ -926,6 +950,9 @@ window.startExam=async function(examId,studentCode){
   const st=(currentExamStudent&&normalizeText(currentExamStudent.studentCode)===normalizeText(studentCode)?currentExamStudent:null)||{studentCode};
   if(!metadata)return toast('الامتحان غير متاح. أعد إدخال كود الطالب.');
   let draft=readExamDraft(examId,studentCode);
+  if(draft&&draft.sessionId&&Array.isArray(draft.questions)&&Number(draft.expiresAt)<=Date.now()){
+    try{const result=await submitExamAttempt(draft.sessionId,st,draft.answers||{},true);clearExamDraft(examId,studentCode);currentExamStudent.examAttempts=[...(currentExamStudent.examAttempts||[]),result];renderExamPortal(currentExamStudent,currentSecureExams);return;}catch(error){return toast(firebaseFriendlyError(error,'انتهى الوقت وتعذر إرسال الإجابات المحفوظة. حاول مرة أخرى.'));}
+  }
   const validDraft=draft&&draft.sessionId&&Array.isArray(draft.questions)&&Number(draft.expiresAt)>Date.now();
   if(!validDraft){
     toast('جاري تجهيز جلسة الامتحان الآمنة...');
@@ -951,14 +978,14 @@ window.startExam=async function(examId,studentCode){
   next.addEventListener('click',()=>{saveVisibleAnswer();if(!currentAnswered())return toast('اختر أو اكتب إجابة السؤال أولًا');current++;renderCurrent();stage.scrollIntoView({behavior:'smooth',block:'start'});});
   prev.addEventListener('click',()=>{saveVisibleAnswer();if(current>0){current--;renderCurrent();}});
   exit.addEventListener('click',()=>{saveVisibleAnswer();if(confirm('سيتم حفظ إجاباتك والوقت سيستمر. هل تريد الخروج؟')){clearInterval(timer);overlay.classList.remove('show');document.body.classList.remove('exam-open');toast('تم حفظ المحاولة، يمكنك متابعتها قبل انتهاء الوقت');}});
-  const finish=async(force=false)=>{if(finished)return;saveVisibleAnswer();const firstMissing=qs.findIndex((q,i)=>String(draft.answers[String(i)]??'').trim()==='');if(firstMissing>=0&&!force){current=firstMissing;renderCurrent();return toast(`أجب عن السؤال ${firstMissing+1} قبل التسليم`);}if(!force&&!confirm('هل أنت متأكد من تسليم الامتحان؟ لن تستطيع تعديل الإجابات بعد التسليم.'))return;finished=true;clearInterval(timer);submit.disabled=true;submit.classList.add('is-loading');try{const result=await submitExamAttempt(draft.sessionId,st,draft.answers);clearExamDraft(examId,studentCode);overlay.classList.remove('show');document.body.classList.remove('exam-open');currentExamStudent.examAttempts=[...(currentExamStudent.examAttempts||[]),result];renderExamPortal(currentExamStudent,currentSecureExams);}catch(err){finished=false;submit.disabled=false;submit.classList.remove('is-loading');toast(firebaseFriendlyError(err,'تعذر تسليم الامتحان. إجاباتك ما زالت محفوظة.'));}};
+  const finish=async(force=false)=>{if(finished)return;saveVisibleAnswer();const firstMissing=qs.findIndex((q,i)=>String(draft.answers[String(i)]??'').trim()==='');if(firstMissing>=0&&!force){current=firstMissing;renderCurrent();return toast(`أجب عن السؤال ${firstMissing+1} قبل التسليم`);}if(!force&&!confirm('هل أنت متأكد من تسليم الامتحان؟ لن تستطيع تعديل الإجابات بعد التسليم.'))return;finished=true;clearInterval(timer);submit.disabled=true;submit.classList.add('is-loading');try{const result=await submitExamAttempt(draft.sessionId,st,draft.answers,force);clearExamDraft(examId,studentCode);overlay.classList.remove('show');document.body.classList.remove('exam-open');currentExamStudent.examAttempts=[...(currentExamStudent.examAttempts||[]),result];renderExamPortal(currentExamStudent,currentSecureExams);}catch(err){finished=false;submit.disabled=false;submit.classList.remove('is-loading');toast(firebaseFriendlyError(err,'تعذر تسليم الامتحان. إجاباتك ما زالت محفوظة.'));}};
   form.addEventListener('submit',e=>{e.preventDefault();finish(false);});
   const updateTimer=()=>{const left=Math.max(0,Number(draft.expiresAt)-Date.now());const total=Math.ceil(left/1000),m=Math.floor(total/60),sec=total%60;const timerEl=box.querySelector('#examTimer b');if(timerEl)timerEl.textContent=`${m}:${String(sec).padStart(2,'0')}`;box.querySelector('#examTimer')?.classList.toggle('danger',total<=60);if(left<=0)finish(true);};
   timer=setInterval(updateTimer,1000);updateTimer();renderCurrent();
 };
-async function submitExamAttempt(sessionId,st,answers){
+async function submitExamAttempt(sessionId,st,answers,autoSubmit=false){
   if(!window.MFCloud?.submitSecureExam)throw new Error('Secure submit function unavailable');
-  const result=await window.MFCloud.submitSecureExam(sessionId,st.studentCode||st.code,answers);
+  const result=await window.MFCloud.submitSecureExam(sessionId,st.studentCode||st.code,answers,{autoSubmit});
   toast(result?.needsManualReview?'تم التسليم وينتظر تصحيح المدرس':'تم التسليم والتصحيح بأمان');
   return result;
 }

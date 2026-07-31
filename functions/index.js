@@ -1107,15 +1107,25 @@ function examIsOpen(exam, now = Date.now()) {
   return true;
 }
 
+function examAvailability(exam, now = Date.now()) {
+  if (exam.active === false) return 'closed';
+  const openAt = exam.openAt ? new Date(exam.openAt).getTime() : 0;
+  const closeAt = exam.closeAt ? new Date(exam.closeAt).getTime() : 0;
+  if (openAt && Number.isFinite(openAt) && now < openAt) return 'upcoming';
+  if (closeAt && Number.isFinite(closeAt) && now > closeAt) return 'closed';
+  return 'open';
+}
+
 exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
   const studentCode = normalizeCode(request.data && request.data.studentCode);
   await rateLimitPublic('exam-dashboard', studentCode, request, 10, 35, 60 * 1000);
   const found = await getStudentPortalByCode(studentCode);
   const grade = text(found.data.grade, 80);
   const snap = await db.collection('exams').get();
+  const now = Date.now();
   const exams = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
     .filter(exam => examMatchesStudent(exam, found.data))
-    .filter(exam => examIsOpen(exam))
+    .filter(exam => exam.active !== false)
     .map(exam => ({
       id: text(exam.id, 100),
       title: text(exam.title, 200),
@@ -1130,8 +1140,15 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
       pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
       pdfName: text(exam.pdfName || exam.examPdfName, 220),
       allowRetake: exam.allowRetake === true,
-      questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length)
-    }));
+      questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length),
+      availability: examAvailability(exam, now)
+    }))
+    .filter(exam => exam.availability !== 'closed')
+    .sort((a, b) => {
+      const aTime = new Date(a.openAt || 0).getTime() || 0;
+      const bTime = new Date(b.openAt || 0).getTime() || 0;
+      return aTime - bTime;
+    });
   const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
   return { student: portalResponse(found.data, attempts, records), exams };
 });
@@ -1230,6 +1247,7 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
   const sessionId = cleanDocId(body.sessionId);
   const studentCode = normalizeCode(body.studentCode);
   const rawAnswers = body.answers && typeof body.answers === 'object' && !Array.isArray(body.answers) ? body.answers : {};
+  const autoSubmit = body.autoSubmit === true;
   if (jsonByteSize(rawAnswers) > 64 * 1024) throw new HttpsError('invalid-argument', 'حجم الإجابات أكبر من الحد المسموح.');
   await rateLimitPublic('exam-submit', `${studentCode}:${sessionId}`, request, 4, 20, 10 * 60 * 1000);
   if (!sessionId || !validLegacyOrStrongCode(studentCode)) throw new HttpsError('invalid-argument', 'بيانات المحاولة غير مكتملة.');
@@ -1240,7 +1258,7 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
   if (session.studentCode !== studentCode) throw new HttpsError('permission-denied', 'كود الطالب لا يطابق جلسة الامتحان.');
   if (session.status === 'submitted' && session.result) return session.result;
   const expiresAt = session.expiresAt && session.expiresAt.toMillis ? session.expiresAt.toMillis() : 0;
-  if (expiresAt && Date.now() > expiresAt + 120 * 1000) throw new HttpsError('deadline-exceeded', 'انتهى وقت الامتحان.');
+  if (expiresAt && Date.now() > expiresAt + 120 * 1000 && !autoSubmit) throw new HttpsError('deadline-exceeded', 'انتهى وقت الامتحان.');
   const examSnap = await db.collection('exams').doc(session.examId).get();
   const exam = examSnap.exists ? { id: examSnap.id, ...examSnap.data() } : {
     id: session.examId,
@@ -1315,6 +1333,8 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
     correctCount,
     needsManualReview,
     status: needsManualReview ? 'pending_manual' : 'submitted',
+    timedOut: Boolean(expiresAt && Date.now() >= expiresAt),
+    autoSubmitted: autoSubmit,
     answers: staffAnswers,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()

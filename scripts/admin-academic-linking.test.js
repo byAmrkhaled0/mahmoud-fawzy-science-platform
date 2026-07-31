@@ -7,6 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.resolve(__dirname, '../assets/admin.js'), 'utf8');
+const mobileStyles = fs.readFileSync(path.resolve(__dirname, '../assets/v60.css'), 'utf8');
 const academicStart = source.indexOf('function stCode(');
 const academicEnd = source.indexOf('function calcStudentAdmin(');
 const requestStart = source.indexOf('function studentRequestLinkedStudent(');
@@ -79,4 +80,43 @@ test('legacy transfer request inherits student and schedule data', () => {
   assert.equal(request.currentGroup, 'مجموعة السبت');
   assert.equal(request.targetGroup, 'مجموعة الأحد');
   assert.equal(request.parentPhone, '01099998888');
+});
+
+test('unified academic composer stays on one page and supports all question types', () => {
+  assert.match(source, /id="academicInlineComposer"/);
+  assert.match(source, /openAcademicInlineComposer/);
+  assert.doesNotMatch(source.match(/function renderAcademics\(\)[\s\S]*?function academicExamRow/)?.[0] || '', /goAdmin\(/);
+  assert.match(source, /value="mcq">اختيار من متعدد/);
+  assert.match(source, /value="truefalse">صح أو غلط/);
+  assert.match(source, /value="essay">سؤال مقالي/);
+  assert.match(source, /saveUnifiedAcademicExam/);
+  assert.match(source, /saveUnifiedAcademicAssignment/);
+});
+
+test('unified forms persist grade and group targeting with schedule fields', () => {
+  assert.match(source, /values\.grade=grade;values\.group=group/);
+  assert.match(source, /name="openAt"/);
+  assert.match(source, /name="closeAt"/);
+  assert.match(source, /name="duration"/);
+  assert.match(source, /data-academic-countdown-target/);
+});
+
+test('teacher can publish a complete PDF-only exam without building questions', () => {
+  assert.match(source, /value="pdf"/);
+  assert.match(source, /رفع الامتحان PDF كامل/);
+  assert.match(source, /pdfOnly=form\.elements\.sourceMode\.value==='pdf'/);
+  assert.match(source, /أجب عن أسئلة ملف الامتحان PDF بالترتيب/);
+  assert.match(source, /values\.pdfOnly=pdfOnly/);
+});
+
+test('student and attendance administration are mobile-first and grade-linked', () => {
+  assert.match(source, /student-management-card/);
+  assert.match(source, /attendanceStudentSearch/);
+  assert.match(source, /grade\.value==='all'\|\|sameAcademicValue\(item\.grade,grade\.value\)/);
+  assert.match(source, /attendance-present/);
+  assert.match(source, /attendance-absent/);
+  assert.match(source, /confirm\(`سيتم تسجيل \$\{missing\.length\} طالب غائب/);
+  assert.match(mobileStyles, /@media\(max-width:700px\)/);
+  assert.match(mobileStyles, /\.student-management-card/);
+  assert.match(mobileStyles, /\.attendance-row-actions/);
 });

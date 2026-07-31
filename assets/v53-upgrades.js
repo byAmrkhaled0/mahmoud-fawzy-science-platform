@@ -363,6 +363,14 @@
         questions.placeholder='اكتب الأسئلة هنا، أو ارفع PDF فقط.\n\nمثال اختياري:\nما عاصمة مصر؟\nأ) القاهرة\nب) الإسكندرية\nالإجابة: أ\n\nمثال مقالي:\nاشرح أهمية الضوء للنبات.';
       }
       if(form){
+        const gradeField=form.elements.grade,groupField=form.elements.group;
+        const refreshExamGroups=()=>{
+          if(!gradeField||!groupField)return;
+          const selected=groupField.value;
+          const rows=(adminData.groups||[]).filter(item=>item&&item.active!==false&&(gradeField.value==='كل الصفوف'||sameAcademicValue(item.grade,gradeField.value)));
+          groupField.innerHTML='<option>كل المجموعات</option>'+rows.map(item=>`<option value="${safe(item.name||'')}" ${item.name===selected?'selected':''}>${safe(item.name||'')} — ${safe(item.days||'')} ${safe(item.startTime||'')}</option>`).join('');
+        };
+        gradeField?.addEventListener('change',refreshExamGroups);refreshExamGroups();
         form.onsubmit=async event=>{
           event.preventDefault();
           const button=form.querySelector('button[type="submit"]'),pdfFile=form.elements.pdfFile?.files?.[0]||null;
@@ -387,7 +395,9 @@
       if(form&&!document.getElementById('exportGradesButton'))form.insertAdjacentHTML('afterend',`<div class="mobile-actions exam-export-tools"><button id="exportGradesButton" class="btn ghost" type="button" onclick="exportGradesCSV()">تصدير الدرجات</button></div>`);
       const existing=[...(form?.parentElement?.children||[])].find(element=>element!==form&&element.classList.contains('card'));
       if(existing&&!document.getElementById('examScheduleSummary')){
-        existing.insertAdjacentHTML('beforeend',`<div id="examScheduleSummary" class="exam-schedule-summary"><h3>مواعيد الإتاحة</h3>${adminData.exams.map(ex=>`<div class="mobile-row"><div><b>${safe(ex.title)}</b><small>${safe(ex.academicYear||ctx.academicYear)} · ${safe(ex.term||ctx.term)} · ${safe(ex.group||'كل المجموعات')}</small></div><span class="badge ${examAvailabilityClass(ex)}">${safe(examAvailabilityText(ex))}</span>${ex.pdfUrl?`<a class="small-btn" href="${safe(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer">فتح PDF</a>`:''}</div>`).join('')||'<p class="section-desc">لا توجد امتحانات.</p>'}</div>`);
+        existing.insertAdjacentHTML('beforeend',`<div id="examScheduleSummary" class="exam-schedule-summary"><h3>الامتحانات المنشورة والوقت المتبقي</h3>${adminData.exams.map(ex=>{const now=Date.now(),open=new Date(ex.openAt||0).getTime(),close=new Date(ex.closeAt||0).getTime(),target=open&&now<open?open:close&&now<close?close:0,label=open&&now<open?'يفتح بعد':close&&now<close?'يغلق بعد':'مغلق';return `<div class="mobile-row admin-live-exam" data-admin-exam-target="${target}"><div><b>${safe(ex.title)}</b><small>${safe(ex.grade||'كل الصفوف')} · ${safe(ex.group||'كل المجموعات')} · ${safe(ex.academicYear||ctx.academicYear)} · ${safe(ex.term||ctx.term)}</small><small>${ex.openAt?`يفتح: ${safe(new Date(ex.openAt).toLocaleString('ar-EG'))}`:'متاح فورًا'}${ex.closeAt?` · يغلق: ${safe(new Date(ex.closeAt).toLocaleString('ar-EG'))}`:''}</small></div><span class="badge ${examAvailabilityClass(ex)}">${safe(examAvailabilityText(ex))}</span><b class="admin-exam-countdown"><small>${label}</small> <span data-admin-countdown>${target?'--:--:--':'انتهى'}</span></b>${ex.pdfUrl?`<a class="small-btn" href="${safe(ex.pdfUrl)}" target="_blank" rel="noopener noreferrer">فتح PDF</a>`:''}</div>`;}).join('')||'<p class="section-desc">لا توجد امتحانات.</p>'}</div>`);
+        const tickAdminExamCountdowns=()=>document.querySelectorAll('[data-admin-exam-target]').forEach(row=>{const target=Number(row.dataset.adminExamTarget||0),out=row.querySelector('[data-admin-countdown]');if(!out||!target)return;const left=Math.max(0,target-Date.now()),total=Math.ceil(left/1000),days=Math.floor(total/86400),hours=Math.floor(total%86400/3600),minutes=Math.floor(total%3600/60),seconds=total%60;out.textContent=days?`${days} يوم ${hours} ساعة`:`${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;if(!left){out.textContent='انتهى';setTimeout(()=>currentSection==='exams'&&renderExams(),1100);}});
+        tickAdminExamCountdowns();clearInterval(window.__adminExamCountdownTimer);window.__adminExamCountdownTimer=setInterval(tickAdminExamCountdowns,1000);
       }
       populateAcademicSelects();
     };
