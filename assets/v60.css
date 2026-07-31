@@ -299,3 +299,25 @@ html[data-theme="dark"] .admin-welcome h1{color:#ecf7f7}
 
 @media(max-width:700px){.admin-page .section-title{font-size:1.45rem!important}.admin-page .section-desc{font-size:.82rem;line-height:1.65}.admin-toolbar{position:sticky;top:68px;z-index:15;padding:10px!important;border:1px solid var(--border);border-radius:17px;background:color-mix(in srgb,var(--surface) 94%,transparent);box-shadow:0 10px 24px rgba(23,54,69,.1);backdrop-filter:blur(14px)}.student-mobile-cards{gap:10px!important}.student-management-card{padding:13px!important;border-radius:19px!important}.student-management-card .mobile-admin-card-head{align-items:flex-start;gap:8px}.student-management-card .mobile-card-kpis{grid-template-columns:repeat(4,minmax(0,1fr))!important}.student-management-card .mobile-card-kpis small{font-size:.61rem}.student-management-card .mobile-card-kpis b{font-size:.9rem}.student-management-card .mobile-primary-actions{grid-template-columns:1fr 1fr 1fr!important}.student-management-card .mobile-primary-actions .small-btn{width:100%!important;padding:8px 5px!important;font-size:.72rem}.attendance-filters{grid-template-columns:1fr 1fr!important}.attendance-filters input{grid-column:1/-1}.attendance-actions{grid-template-columns:1fr 1fr!important}.attendance-actions .qr-open-btn{grid-column:1/-1}.attendance-roster{gap:9px}.attendance-student{grid-template-columns:auto minmax(0,1fr) auto!important;padding:12px!important;border-radius:18px!important}.attendance-student .student-avatar{width:42px!important;height:42px!important}.attendance-row-actions{grid-column:1/-1!important;display:grid!important;grid-template-columns:1fr 1fr!important;gap:7px!important}.attendance-row-actions .small-btn{width:100%!important;min-height:43px}.attendance-student>.badge{font-size:.67rem}.attendance-roster-card{padding:12px!important}}
 @media(max-width:390px){.student-management-card .mobile-card-kpis{grid-template-columns:1fr 1fr!important}.student-management-card .mobile-card-kpis span:nth-child(2){border:0}.student-management-card .mobile-primary-actions{grid-template-columns:1fr 1fr!important}.student-management-card .whatsapp-report-btn{grid-column:1/-1}.attendance-filters{grid-template-columns:1fr!important}.attendance-filters input{grid-column:auto}}
+
+/* Keep the complete portrait visible on phones instead of cropping it. */
+@media(max-width:760px){
+  body#top .hero .teacher-frame{min-height:0!important;height:auto!important;padding-block:8px!important}
+  body#top .hero .teacher-photo,
+  body.mobile-nav-active .hero .teacher-photo{
+    width:min(360px,94%)!important;
+    height:auto!important;
+    aspect-ratio:3/4!important;
+    margin-inline:auto!important;
+    padding:7px!important;
+    border-radius:27px!important;
+  }
+  body#top .hero .teacher-photo img,
+  body.mobile-nav-active .hero .teacher-photo img{
+    width:100%!important;
+    height:100%!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+    border-radius:20px!important;
+  }
+}

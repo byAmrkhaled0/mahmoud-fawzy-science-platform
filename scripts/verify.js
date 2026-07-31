@@ -185,6 +185,8 @@ if (manifest.launch_handler?.client_mode !== 'navigate-existing' || manifest.pre
 const sw = read('service-worker.js');
 const appShellSource = sw.slice(0,sw.indexOf('];')+2);
 if (!/mf-science-v\d+[^"']*/.test(sw) || !sw.includes('/assets/site.bundle.css') || !sw.includes('/assets/public.bundle.js') || !sw.includes('/assets/icon-maskable-512.png')) fail('Service worker app shell is incomplete');
+if (/gstatic\.com|importScripts\(/.test(sw)) fail('Service worker must not depend on third-party startup scripts');
+if (!sw.includes("addEventListener('push'")) fail('Service worker push handler is missing');
 if (/assets\/vendor|assets\/admin(?:\.bundle)?\.js|teacher-login\.html|assets\/(?:site|v5[5689])\.css|assets\/(?:app|v53-upgrades|v56-fixes)\.js/.test(appShellSource) || !sw.includes('event.waitUntil(network.catch')) fail('Large or superseded assets are still precached, or repeat-visit caching is missing');
 if (!read('index.html').includes('<script defer src="https://www.gstatic.com/firebasejs/')) fail('Firebase scripts are not downloaded in parallel with deferred execution');
 const upgrade = read('assets/v53-upgrades.js');
@@ -215,7 +217,7 @@ if (!read('assets/app.js').includes('toEnglishDigits') || !read('functions/index
 if (!functionsSource.includes('uniqueNumericCode') || !functionsSource.includes('studentCode, parentCode') || !read('assets/app.js').includes('كود الطالب')) fail('Immediate numeric booking access code is incomplete');
 if (!rules.includes('match /booking_status/{bookingCode}') || !rules.includes('allow read, create: if false;')) fail('Booking status documents must be server-only');
 if (!read('assets/admin.js').includes('renderSchedules') || !read('assets/admin.js').includes('startBookingNotifications')) fail('V55 schedule or booking notification UI is incomplete');
-if (!read('teacher-login.html').includes('firebase-messaging-compat.js') || !sw.includes('onBackgroundMessage')) fail('Teacher background push notification wiring is incomplete');
+if (!read('teacher-login.html').includes('firebase-messaging-compat.js') || !sw.includes("addEventListener('push'")) fail('Teacher background push notification wiring is incomplete');
 if (!read('assets/admin.js').includes('MFCloud?.approveBooking') || !read('functions/index.js').includes('tx.delete(bookingRef)')) fail('Atomic booking approval and queue removal are incomplete');
 if (/مجموعة السبت والثلاثاء|مجموعة الأحد والأربعاء|مجموعة الاثنين والخميس|أونلاين متابعة/.test(read('index.html'))) fail('Static booking groups must not appear in the booking form');
 if (!failures.some(x => x.includes('PWA') || x.includes('Service worker') || x.includes('Mobile install'))) ok('Android and iPhone PWA installation checks passed');

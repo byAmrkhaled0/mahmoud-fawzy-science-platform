@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5921-windows-deploy-fix";
+const CACHE_NAME = "mf-science-v5941";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
@@ -10,32 +10,22 @@ const APP_SHELL = [
   "/assets/teacher.webp", "/site.webmanifest"
 ];
 
-// Firebase Messaging shares the same service worker as the PWA, avoiding a
-// second worker with a conflicting root scope.
-try {
-  importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js');
-  importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js');
-  firebase.initializeApp({
-    apiKey:'AIzaSyANU2fln6kuYCtdm1WRMtG-AD5pUwV9a4g',
-    authDomain:'mahmoud-fawzy-science-platform.firebaseapp.com',
-    projectId:'mahmoud-fawzy-science-platform',
-    storageBucket:'mahmoud-fawzy-science-platform.firebasestorage.app',
-    messagingSenderId:'805108517684',
-    appId:'1:805108517684:web:68c0cb7e506a583e3a7361'
-  });
-  firebase.messaging().onBackgroundMessage(payload => {
-    const notification = payload.notification || payload.data || {};
-    self.registration.showNotification(notification.title || 'حجز جديد', {
-      body: notification.body || 'تم تسجيل حجز طالب جديد',
-      icon: '/assets/icon-192.png',
-      badge: '/assets/icon-192.png',
-      data: { url: '/teacher-login.html?section=bookings' },
-      tag: `booking-${payload.data?.bookingCode || Date.now()}`
-    });
-  });
-} catch (error) {
-  console.warn('Firebase Messaging is unavailable', error);
-}
+// Handle standards-based Web Push directly so the PWA never depends on a
+// third-party script during service-worker startup.
+self.addEventListener('push', event => {
+  let payload = {};
+  try { payload = event.data?.json?.() || {}; } catch (_) {
+    payload = { notification: { body: event.data?.text?.() || '' } };
+  }
+  const notification = payload.notification || payload.data || payload || {};
+  event.waitUntil(self.registration.showNotification(notification.title || 'تنبيه جديد', {
+    body: notification.body || 'يوجد تحديث جديد في منصة مستر محمود فوزي',
+    icon: '/assets/icon-192.png',
+    badge: '/assets/icon-192.png',
+    data: { url: notification.url || payload.data?.url || '/teacher-login.html' },
+    tag: notification.tag || `mf-notification-${payload.data?.bookingCode || Date.now()}`
+  }));
+});
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
