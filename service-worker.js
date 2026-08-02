@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5949-unified-exam-editor";
+const CACHE_NAME = "mf-science-v5961-exam-time-qr-fix";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",
@@ -67,7 +67,7 @@ self.addEventListener("fetch", event => {
   if(request.mode==="navigate"){
     event.respondWith((async()=>{
       try{
-        const response=await fetch(request);
+        const response=await fetch(request,{cache:"no-store"});
         if(response.ok){const cache=await caches.open(CACHE_NAME);await cache.put(request,response.clone());}
         return response;
       }catch(_){

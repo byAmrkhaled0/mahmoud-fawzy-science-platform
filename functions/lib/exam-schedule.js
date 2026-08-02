@@ -58,4 +58,50 @@ function getExamScheduleState(exam, now = Date.now()) {
   return { state: 'open', reason: 'within-window', openAtMs: open.ms, closeAtMs: close.ms };
 }
 
-module.exports = { cairoWallTimeMs, scheduleTime, getExamScheduleState };
+function examDurationMinutes(value) {
+  const parsed = Number(value);
+  return Math.max(1, Math.min(240, Number.isFinite(parsed) ? parsed : 20));
+}
+
+function examSessionExpiryMillis(exam, startedAt) {
+  const started = scheduleTime(startedAt);
+  const close = scheduleTime(exam && exam.closeAt);
+  if (!started.present || !started.valid || !close.valid) return NaN;
+  return Math.min(
+    started.ms + examDurationMinutes(exam && exam.duration) * 60 * 1000,
+    close.present ? close.ms : Number.POSITIVE_INFINITY
+  );
+}
+
+function examSessionTiming(exam, session) {
+  if (!exam || !session || session.status !== 'started') return null;
+  const expiresAtMs = examSessionExpiryMillis(exam, session.startedAt);
+  if (!Number.isFinite(expiresAtMs)) return null;
+  const close = scheduleTime(exam.closeAt);
+  return {
+    duration: examDurationMinutes(exam.duration),
+    expiresAtMs,
+    closeAtMs: close.present ? close.ms : 0,
+    contentVersion: Number(exam.contentVersion || 0)
+  };
+}
+
+function examSessionTimingChanged(before, after) {
+  if (!after) return false;
+  const beforeClose = scheduleTime(before && before.closeAt);
+  const afterClose = scheduleTime(after.closeAt);
+  return examDurationMinutes(before && before.duration) !== examDurationMinutes(after.duration)
+    || beforeClose.present !== afterClose.present
+    || beforeClose.valid !== afterClose.valid
+    || beforeClose.ms !== afterClose.ms;
+}
+
+module.exports = {
+  cairoWallTimeMs,
+  scheduleTime,
+  getExamScheduleState,
+  examDurationMinutes,
+  examSessionExpiryMillis,
+  examSessionTiming,
+  examSessionTimingChanged
+};

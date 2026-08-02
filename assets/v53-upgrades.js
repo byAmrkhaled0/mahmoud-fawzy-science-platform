@@ -39,7 +39,7 @@
     defaultData=function(){
       const ctx=currentAcademicContext();
       return {
-        students:[],bookings:[],materials:[],questions:[],exams:[],examAttempts:[],grades:[],reviews:[],groups:[],assignments:[],
+        students:[],bookings:[],materials:[],questions:[],exams:[],examAttempts:[],grades:[],reviews:[],groups:[],assignments:[],lectures:[],
         settings:{siteUrl:typeof DEFAULT_SITE_URL!=='undefined'?DEFAULT_SITE_URL:'',teacherPhone:typeof TEACHER_WHATSAPP!=='undefined'?TEACHER_WHATSAPP:'',academicYear:ctx.academicYear,term:ctx.term,backupRetentionDays:14}
       };
     };
@@ -48,7 +48,7 @@
     mergeData=function(data){
       const d=defaultData();
       const p=data&&typeof data==='object'?data:{};
-      const arrays=['students','bookings','materials','questions','exams','examAttempts','grades','reviews','groups','assignments'];
+      const arrays=['students','bookings','materials','questions','exams','examAttempts','grades','reviews','groups','assignments','lectures'];
       const result={...d,...p,settings:{...d.settings,...(p.settings||{})}};
       arrays.forEach(key=>{result[key]=Array.isArray(p[key])?p[key]:[];});
       result.students=result.students.map(st=>({...st,academicYear:st.academicYear||result.settings.academicYear,term:st.term||result.settings.term}));
@@ -449,7 +449,7 @@
 
   const studentHelpItems=[
     {q:'إزاي أحجز في السنتر؟',keys:'احجز حجز تسجيل سنتر',a:'افتح قسم الحجز، اكتب بيانات الطالب واختر الصف والمجموعة والشهر، ثم احتفظ بكود متابعة الحجز.',link:'index.html#booking',label:'فتح الحجز'},
-    {q:'إيه الصفوف المتاحة؟',keys:'صفوف مراحل رابعة خامسة سادسة اعدادي ثانوي',a:'المنصة متاحة من رابعة ابتدائي حتى تالتة ثانوي.'},
+    {q:'إيه الصفوف المتاحة؟',keys:'صفوف مراحل اعدادي ثانوي',a:'المنصة متاحة من أولى إعدادي حتى تالتة ثانوي.'},
     {q:'أجيب كود الطالب منين؟',keys:'كود الطالب ضاع نسيته',a:'كود الطالب يصدر بعد قبول الحجز. اطلبه من المدرس أو تواصل معه إذا فقدته.'},
     {q:'أدخل صفحة الطالب إزاي؟',keys:'صفحة بوابة بياناتي تقرير الطالب',a:'افتح صفحة الطالب واكتب الكود كما استلمته، أو امسح رمز QR الخاص بك.',link:'student.html',label:'فتح صفحة الطالب'},
     {q:'ولي الأمر يتابع إزاي؟',keys:'ولي الامر الاب الام متابعة تقرير',a:'يستخدم ولي الأمر نفس كود الطالب الموحّد أو يمسح نفس الباركود لعرض الحضور والتسميع والدرجات والواجبات والملاحظات.',link:'parent.html',label:'فتح صفحة ولي الأمر'},

@@ -1,47 +1,59 @@
-# نشر الإصدار 59
+# نشر الإصدار 59.6.1
 
-راجع `UPGRADE_V59_AR.md` للأوامر الكاملة واختبار الوظائف الجديدة. هذا الإصدار يحتاج نشر Functions وقواعد Firestore والواجهة.
+هذا الإصدار يغيّر الواجهة وFirebase Functions معًا. يجب نشر الدوال والقواعد ثم رفع المصدر إلى GitHub ليبني Vercel مجلد `dist`.
 
-## التحديث من 56.13 إلى 56.14
+## الإعداد على Vercel
 
-هذا التحديث يحتوي على تحسين في Functions والواجهة فقط؛ لا توجد قواعد جديدة مطلوبة. بعد فك الضغط نفّذ:
-
-```powershell
-$env:FUNCTIONS_DISCOVERY_TIMEOUT="60"
-firebase deploy --only functions
-npm run build
-firebase deploy --only hosting
-```
-
-## Vercel
-
-- Framework: Other
+- Framework Preset: `Other`
 - Build Command: `npm run build`
 - Output Directory: `dist`
-- Root Directory: empty
+- Root Directory: اتركه فارغًا
 
-## Firebase backend
+## أوامر PowerShell الكاملة
 
-نفّذ بالترتيب من مجلد المشروع:
+نفّذ من مجلد المشروع بعد تسجيل الدخول في Firebase وGitHub:
 
 ```powershell
+$ErrorActionPreference = "Stop"
+$env:FUNCTIONS_DISCOVERY_TIMEOUT = "60"
+
+npm test
+npm run build
+npm --prefix functions ci --no-audit --no-fund
+npm --prefix functions run lint
+
 firebase deploy --only functions
 firebase deploy --only firestore:rules,firestore:indexes,storage
-firebase deploy --only hosting
+
+git add -A
+git commit -m "Fix live exam timing sync and QR attendance scanning"
+git push origin main
 ```
 
-صفحة المدرس الخاصة:
+بعد أن تصبح عملية Vercel `Ready` افتح المسارات التالية واختبر Refresh لكل واحد:
 
 ```text
+/
+/student.html
+/parent.html
+/exams.html
+/materials.html
 /teacher-login.html
 ```
 
-يمكن أيضًا تنفيذ كل الاختبارات والنشر بالأمر:
+## اختبار مزامنة الامتحان
 
-```powershell
-npm run firebase:deploy:all
-```
+1. افتح صفحة الامتحانات بكود طالب دون بدء الامتحان.
+2. ابدأ الامتحان من جهاز الطالب واترك العداد ظاهرًا.
+3. عدّل مدة الامتحان أو موعد الإغلاق من لوحة المدرس واحفظ.
+4. يتحدث عداد الطالب تلقائيًا خلال 45 ثانية، أو فور الخروج والمتابعة من جديد.
+5. تظل إجابات الطالب ونسخة الأسئلة كما هي؛ الذي يتغير هو الوقت فقط.
 
-مهم: لا تكتفِ بنشر Vercel؛ تعديلات الحجز والكود الموحّد والتسميع والواجب وتصريح رفع الملفات تحتاج نشر Firebase Functions والقواعد والفهارس أيضًا. انشر الدوال أولًا ثم القواعد ثم الواجهة مباشرة.
+## اختبار ماسح الحضور
 
-راجع `UPGRADE_V56_AR.md` للاختبار بعد النشر.
+1. افتح «متابعة الحصة» من هاتف المدرس واضغط «مسح QR».
+2. اسمح بالكاميرا ثم وجّه الكاميرا الخلفية إلى QR طالب.
+3. قرّب الرمز حتى يملأ مربع القراءة؛ يجب أن يظهر اسم الطالب وتُسجل حالة الحضور.
+4. جرّب رمز طالب آخر دون إغلاق الماسح للتأكد من المسح المتتابع.
+
+مهم: رفع الواجهة إلى Vercel وحده لا يكفي لتفعيل التحقق الجديد من الصفوف وإصدار نسخة الامتحان؛ يجب نشر Firebase Functions أيضًا.

@@ -11,6 +11,11 @@
   const normalizeDigits=value=>String(value||'').replace(/[٠-٩]/g,digit=>String(digit.charCodeAt(0)-1632)).replace(/[۰-۹]/g,digit=>String(digit.charCodeAt(0)-1776));
   const digits=value=>normalizeDigits(value).replace(/\D/g,'');
   const normalizeCode=value=>normalizeDigits(value).trim().toUpperCase().replace(/\s+/g,'');
+  const PLATFORM_GRADES=['أولى إعدادي','تانية إعدادي','تالتة إعدادي','أولى ثانوي','تانية ثانوي','تالتة ثانوي'];
+  const normalizeAcademicGrade=value=>normalizeDigits(value).normalize('NFKC').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g,'').replace(/\u0640/g,'').replace(/[إأآٱ]/g,'ا').replace(/ى/g,'ي').replace(/\s+/g,' ').trim().toLocaleLowerCase('ar');
+  const PLATFORM_GRADE_KEYS=new Set(PLATFORM_GRADES.map(normalizeAcademicGrade));
+  const platformGradeAllowed=value=>{const grade=normalizeAcademicGrade(value);return !grade||grade.startsWith('كل ')||PLATFORM_GRADE_KEYS.has(grade);};
+  const filterPlatformGrades=rows=>(rows||[]).filter(item=>platformGradeAllowed(item?.grade));
   const normalizeStudentName=value=>String(value||'').normalize('NFKC').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g,'').replace(/\u0640/g,'').replace(/[إأآٱ]/g,'ا').replace(/ى/g,'ي').replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim().toLocaleLowerCase('ar');
   const hasAtLeastThreeNameParts=value=>normalizeStudentName(value).split(' ').filter(Boolean).length>=3;
   const studentNameIdentity=async value=>{
@@ -58,11 +63,13 @@
       approveBooking:callable('approveBooking'),
       rejectBooking:callable('rejectBooking'),
       registerTeacherPushToken:callable('registerTeacherPushToken'),
+      registerStudentPushToken:callable('registerStudentPushToken'),
       getBookingStatus:callable('getBookingStatus'),
       createReview:callable('createReview'),
       recordClassProgress:callable('recordClassProgress'),
       getExamDashboard:callable('getExamDashboard'),
       startExam:callable('startExam'),
+      getExamSessionTiming:callable('getExamSessionTiming'),
       submitExam:callable('submitExam'),
       reportClientError:callable('reportClientError'),
       createStudentAccess:callable('createStudentAccess'),
@@ -75,6 +82,10 @@
       deleteStudentSafely:callable('deleteStudentSafely'),
       createStudentTransferRequest:callable('createStudentTransferRequest'),
       reviewStudentTransferRequest:callable('reviewStudentTransferRequest')
+      ,getAssignmentRoster:callable('getAssignmentRoster')
+      ,gradeHomeworkSubmission:callable('gradeHomeworkSubmission')
+      ,getPlatformHealth:callable('getPlatformHealth')
+      ,archiveAndDeletePrimaryData:callable('archiveAndDeletePrimaryData')
     };
 
     function randomCode(prefix){
@@ -194,13 +205,13 @@
 
     async function syncPayloadToCollections(payload,options={}){
       const data=payload||{};const ops=[];
-      (data.students||[]).forEach(st=>pushStudentOps(ops,st,options.full===true));
-      (data.bookings||[]).forEach(item=>{
+      filterPlatformGrades(data.students).forEach(st=>pushStudentOps(ops,st,options.full===true));
+      filterPlatformGrades(data.bookings).forEach(item=>{
         const id=cleanDocId(item.code||item.id||`${Date.now()}`);const full={...item,id:item.id||id,code:item.code||id,updatedAt:serverTime()};
         if(changed(`bookings/${id}`,full)){ops.push(batch=>batch.set(db.collection('bookings').doc(id),full,{merge:true}));ops.push(batch=>batch.set(db.collection('booking_status').doc(id),publicBookingStatusPayload(full),{merge:true}));}
       });
-      const mappings=[['materials','title'],['questions','title'],['exams','title'],['reviews','name'],['groups','name'],['assignments','title']];
-      mappings.forEach(([collection,fallback])=>(data[collection]||[]).forEach(item=>{
+      const mappings=[['materials','title'],['questions','title'],['exams','title'],['reviews','name'],['groups','name'],['assignments','title'],['lectures','title']];
+      mappings.forEach(([collection,fallback])=>(collection==='reviews'?(data[collection]||[]):filterPlatformGrades(data[collection])).forEach(item=>{
         const id=cleanDocId(item.id||item[fallback]||`${Date.now()}-${Math.random().toString(36).slice(2,8)}`);
         const body={...item,id,updatedAt:serverTime()};if(collection==='reviews')body.approved=item.approved===true;
         if(changed(`${collection}/${id}`,body))ops.push(batch=>batch.set(db.collection(collection).doc(id),body,{merge:true}));
@@ -245,26 +256,27 @@
         (home||reviewsPage)?getApprovedReviews().catch(()=>[]):[],home?getDocs('groups').catch(()=>[]):[],
         resources?getDocs('assignments').catch(()=>[]):[],getSettings().catch(()=>({}))
       ]);
-      return {students:[],bookings:[],materials,questions,exams:[],reviews,groups,assignments,examAttempts:[],grades:[],settings};
+      return {students:[],bookings:[],materials:filterPlatformGrades(materials),questions:filterPlatformGrades(questions),exams:[],reviews,groups:filterPlatformGrades(groups),assignments:filterPlatformGrades(assignments),examAttempts:[],grades:[],settings};
     }
 
     async function loadStaffCoreCollections(){
-      const [students,bookings,materials,questions,exams,reviews,groups,assignments,payments,settings]=await Promise.all([
+      const [students,bookings,materials,questions,exams,reviews,groups,assignments,lectures,payments,settings]=await Promise.all([
         getDocs('students').catch(()=>[]),getDocs('bookings').catch(()=>[]),getDocs('materials').catch(()=>[]),getDocs('questions').catch(()=>[]),
-        getDocs('exams').catch(()=>[]),getDocs('reviews').catch(()=>[]),getDocs('groups').catch(()=>[]),getDocs('assignments').catch(()=>[]),
+        getDocs('exams').catch(()=>[]),getDocs('reviews').catch(()=>[]),getDocs('groups').catch(()=>[]),getDocs('assignments').catch(()=>[]),getDocs('lectures').catch(()=>[]),
         getDocs('payments',3000).catch(()=>[]),getSettings().catch(()=>({}))
       ]);
-      const normalized=students.map(normalizedStudent);const map=new Map(normalized.map(st=>[st.studentCode,st]));
+      const visibleStudents=filterPlatformGrades(students),visibleBookings=filterPlatformGrades(bookings),visibleMaterials=filterPlatformGrades(materials),visibleQuestions=filterPlatformGrades(questions),visibleExams=filterPlatformGrades(exams),visibleGroups=filterPlatformGrades(groups),visibleAssignments=filterPlatformGrades(assignments),visibleLectures=filterPlatformGrades(lectures);
+      const normalized=visibleStudents.map(normalizedStudent);const map=new Map(normalized.map(st=>[st.studentCode,st]));
       payments.forEach(row=>{const st=map.get(normalizeCode(row.studentCode||row.studentId||''));if(st){st.paid=row.paid===true;st.paymentDate=row.paymentDate||st.paymentDate;}});
       normalized.forEach(st=>{
         const id=cleanDocId(st.studentCode);seedFingerprint('students',id,studentProfile(st));seedFingerprint('student_portal',id,studentProfile(st));
         if(st.parentCode)seedFingerprint('parent_portal',cleanDocId(st.parentCode),studentProfile(st));
       });
-      bookings.forEach(item=>seedFingerprint('bookings',cleanDocId(item.code||item.id),item));
+      visibleBookings.forEach(item=>seedFingerprint('bookings',cleanDocId(item.code||item.id),item));
       payments.forEach(item=>seedFingerprint('payments',cleanDocId(item.studentCode||item.studentId||item.id),item));
-      [['materials',materials],['questions',questions],['exams',exams],['reviews',reviews],['groups',groups],['assignments',assignments]].forEach(([collection,rows])=>rows.forEach(item=>seedFingerprint(collection,cleanDocId(item.id),item)));
+      [['materials',visibleMaterials],['questions',visibleQuestions],['exams',visibleExams],['reviews',reviews],['groups',visibleGroups],['assignments',visibleAssignments],['lectures',visibleLectures]].forEach(([collection,rows])=>rows.forEach(item=>seedFingerprint(collection,cleanDocId(item.id),item)));
       seedFingerprint('settings','platform',settings);
-      return {students:normalized,bookings,materials,questions,exams,reviews,groups,assignments,examAttempts:[],grades:[],settings};
+      return {students:normalized,bookings:visibleBookings,materials:visibleMaterials,questions:visibleQuestions,exams:visibleExams,reviews,groups:visibleGroups,assignments:visibleAssignments,lectures:visibleLectures,examAttempts:[],grades:[],settings};
     }
 
     async function loadStaffRecordCollections(){
@@ -303,6 +315,7 @@
     async function createStudentAccessDirect(student){
       const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');
       const name=String(student?.studentName||student?.name||'').replace(/\s+/g,' ').trim();
+      if(!platformGradeAllowed(student?.grade)||!String(student?.grade||'').trim())throw Object.assign(new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية.'),{code:'functions/invalid-argument'});
       if(!hasAtLeastThreeNameParts(name))throw Object.assign(new Error('اكتب اسم الطالب ثلاثيًا على الأقل، وإذا تكرر الاسم الثلاثي اكتب الاسم الرباعي.'),{code:'functions/invalid-argument'});
       const identity=await studentNameIdentity(name);
       const [claimSnap,keyedStudents,keyedBookings]=await Promise.all([
@@ -441,6 +454,23 @@
     async function deleteWhere(collection,field,value){
       const snap=await db.collection(collection).where(field,'==',value).get();const ops=[];snap.forEach(doc=>ops.push(batch=>batch.delete(doc.ref)));await commitOperations(ops);
     }
+    async function saveExamDirect(exam){
+      const profile=await getCurrentStaffProfile();
+      if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');
+      const id=cleanDocId(exam?.id||'');
+      if(!id||!String(exam?.title||'').trim())throw new Error('بيانات الامتحان غير مكتملة');
+      if(!platformGradeAllowed(exam?.grade))throw new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية');
+      const examRef=db.collection('exams').doc(id),previous=await examRef.get();
+      const contentVersion=Math.max(Date.now(),Number(exam?.contentVersion||0)+1,Number(previous.data()?.contentVersion||0)+1);
+      const body={...exam,id,contentVersion,updatedAt:serverTime()};
+      const batch=db.batch();
+      if(previous.exists){const old=previous.data()||{},versionId=cleanDocId(String(old.contentVersion||Date.now()));batch.set(examRef.collection('versions').doc(versionId),{...old,id:versionId,sourceExamId:id,archivedAt:serverTime(),archivedBy:profile.uid||''});}
+      batch.set(examRef,body,{merge:true});
+      await batch.commit();
+      const saved={...exam,id,contentVersion,updatedAt:nowIso()};
+      seedFingerprint('exams',id,saved);
+      return saved;
+    }
 
     window.MFCloud={
       ready:true,app,auth,db,storage,functions,cleanDocId,normalizePhoneDigits:digits,currentUser:()=>auth.currentUser,
@@ -449,7 +479,7 @@
       loadSiteData:async(options={})=>{
         const profile=await getCurrentStaffProfile().catch(()=>null);
         const data=await (profile?.allowed?loadStaffCollections(options):loadPublicCollections()).catch(()=>null);
-        const hasData=data&&['students','bookings','materials','questions','exams','reviews','groups','assignments'].some(key=>Array.isArray(data[key])&&data[key].length);
+        const hasData=data&&['students','bookings','materials','questions','exams','reviews','groups','assignments','lectures'].some(key=>Array.isArray(data[key])&&data[key].length);
         if(profile?.allowed&&!hasData){
           const legacy=await legacySiteDoc.get().catch(()=>null);
           if(legacy?.exists&&legacy.data().payload){
@@ -463,8 +493,12 @@
       },
       loadStaffRecords:async()=>{const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');return loadStaffRecordCollections();},
       saveSiteData:async(payload,options={})=>syncPayloadToCollections(payload,options),
-      saveStudent:async student=>{const ops=[];pushStudentOps(ops,student);await commitOperations(ops);},
-      saveGroup:async group=>{const id=cleanDocId(group?.id||'');if(!id)throw new Error('Invalid group');const profile=await getCurrentStaffProfile();if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');await db.collection('groups').doc(id).set({...group,id,updatedAt:serverTime()},{merge:true});return {...group,id};},
+      saveStudent:async student=>{if(!platformGradeAllowed(student?.grade)||!String(student?.grade||'').trim())throw new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية');const ops=[];pushStudentOps(ops,student);await commitOperations(ops);},
+      saveGroup:async group=>{const id=cleanDocId(group?.id||'');if(!id)throw new Error('Invalid group');if(!platformGradeAllowed(group?.grade))throw new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية');const profile=await getCurrentStaffProfile();if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');await db.collection('groups').doc(id).set({...group,id,updatedAt:serverTime()},{merge:true});return {...group,id};},
+      saveExam:saveExamDirect,
+      saveLecture:async lecture=>{const id=cleanDocId(lecture?.id||'');if(!id||!String(lecture?.title||'').trim())throw new Error('بيانات المحاضرة غير مكتملة');if(!platformGradeAllowed(lecture?.grade))throw new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية');const profile=await getCurrentStaffProfile();if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');const body={...lecture,id,updatedAt:serverTime()};await db.collection('lectures').doc(id).set(body,{merge:true});return {...lecture,id};},
+      listExamVersions:async examId=>{const profile=await getCurrentStaffProfile();if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');const snap=await db.collection('exams').doc(cleanDocId(examId)).collection('versions').orderBy('archivedAt','desc').limit(30).get();return snap.docs.map(doc=>({id:doc.id,...doc.data()}));},
+      restoreExamVersion:async(examId,versionId)=>{const ref=db.collection('exams').doc(cleanDocId(examId)).collection('versions').doc(cleanDocId(versionId)),snap=await ref.get();if(!snap.exists)throw new Error('النسخة غير موجودة');const restored={...snap.data(),id:cleanDocId(examId)};['archivedAt','archivedBy','sourceExamId'].forEach(key=>delete restored[key]);return saveExamDirect(restored);},
       deleteGroup:async id=>{const profile=await getCurrentStaffProfile();if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');await db.collection('groups').doc(cleanDocId(id)).delete();},
       createStudentAccess:async student=>{
         if(calls.createStudentAccess){try{return await retryTransient(()=>calls.createStudentAccess(student),1);}catch(error){
@@ -481,9 +515,10 @@
         return retryTransient(()=>calls.approveBooking({code:normalizeCode(code)}),1);
       },
       rejectBooking:async code=>{if(!calls.rejectBooking)throw new Error('Secure booking rejection function is unavailable');return calls.rejectBooking({code:normalizeCode(code)});},
-      subscribeToBookings:handler=>db.collection('bookings').orderBy('createdAt','desc').limit(100).onSnapshot(snap=>handler(snap.docs.map(doc=>({id:doc.id,...doc.data()})),snap.docChanges()),error=>console.warn('booking-listener',error)),
+      subscribeToBookings:handler=>db.collection('bookings').orderBy('createdAt','desc').limit(100).onSnapshot(snap=>handler(filterPlatformGrades(snap.docs.map(doc=>({id:doc.id,...doc.data()}))),snap.docChanges().filter(change=>platformGradeAllowed(change.doc.data()?.grade))),error=>console.warn('booking-listener',error)),
       subscribeToExamAttempts:handler=>db.collection('exam_attempts').orderBy('submittedAt','desc').limit(500).onSnapshot(snap=>handler(snap.docs.map(doc=>({id:doc.id,...doc.data()})),snap.docChanges()),error=>console.warn('exam-attempts-listener',error)),
       registerTeacherPushToken:async()=>{if(!cfg.messagingVapidKey||!firebase.messaging||!calls.registerTeacherPushToken)throw new Error('VAPID_KEY_REQUIRED');const registration=await navigator.serviceWorker.ready;const token=await firebase.messaging().getToken({vapidKey:cfg.messagingVapidKey,serviceWorkerRegistration:registration});if(!token)throw new Error('TOKEN_UNAVAILABLE');return calls.registerTeacherPushToken({token,userAgent:navigator.userAgent});},
+      registerStudentPushToken:async studentCode=>{if(!cfg.messagingVapidKey||!firebase.messaging||!calls.registerStudentPushToken)throw new Error('VAPID_KEY_REQUIRED');const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('NOTIFICATION_PERMISSION_DENIED');const registration=await navigator.serviceWorker.ready;const token=await firebase.messaging().getToken({vapidKey:cfg.messagingVapidKey,serviceWorkerRegistration:registration});if(!token)throw new Error('TOKEN_UNAVAILABLE');return calls.registerStudentPushToken({studentCode:normalizeCode(studentCode),token,userAgent:navigator.userAgent});},
       getBookingStatus:async code=>{
         const normalized=normalizeCode(code);
         if(calls.getBookingStatus){try{return await calls.getBookingStatus({code:normalized});}catch(error){
@@ -502,8 +537,9 @@
         }
         throw directError||new Error('Class progress service is unavailable');
       },
-      getExamDashboard:async studentCode=>{if(!calls.getExamDashboard)throw new Error('Secure exam dashboard function is unavailable');return calls.getExamDashboard({studentCode:normalizeCode(studentCode)});},
+      getExamDashboard:async(studentCode,options={})=>{if(!calls.getExamDashboard)throw new Error('Secure exam dashboard function is unavailable');return calls.getExamDashboard({studentCode:normalizeCode(studentCode),clientRequestId:String(options.clientRequestId||`${Date.now()}`).slice(0,80)});},
       startSecureExam:async(examId,studentCode)=>{if(!calls.startExam)throw new Error('Secure start exam function is unavailable');return calls.startExam({examId,studentCode:normalizeCode(studentCode)});},
+      getSecureExamTiming:async(sessionId,studentCode)=>{if(!calls.getExamSessionTiming)throw new Error('Secure exam timing function is unavailable');return calls.getExamSessionTiming({sessionId,studentCode:normalizeCode(studentCode)});},
       submitSecureExam:async(sessionId,studentCode,answers,options={})=>{if(!calls.submitExam)throw new Error('Secure submit exam function is unavailable');return calls.submitExam({sessionId,studentCode:normalizeCode(studentCode),answers,autoSubmit:options.autoSubmit===true});},
       saveExamAttempt:async attempt=>{
         const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');
@@ -554,6 +590,10 @@
       listAutomaticBackups:()=>{if(!calls.listAutomaticBackups)throw new Error('Backup function unavailable');return calls.listAutomaticBackups({});},
       getBackupDownloadUrl:name=>{if(!calls.getBackupDownloadUrl)throw new Error('Backup function unavailable');return calls.getBackupDownloadUrl({name});},
       restoreAutomaticBackup:name=>{if(!calls.restoreAutomaticBackup)throw new Error('Restore function unavailable');return calls.restoreAutomaticBackup({name,confirmation:'RESTORE-V54'});},
+      getAssignmentRoster:assignmentId=>{if(!calls.getAssignmentRoster)throw new Error('Homework tracking service unavailable');return calls.getAssignmentRoster({assignmentId});},
+      gradeHomeworkSubmission:payload=>{if(!calls.gradeHomeworkSubmission)throw new Error('Homework grading service unavailable');return calls.gradeHomeworkSubmission(payload);},
+      getPlatformHealth:()=>{if(!calls.getPlatformHealth)throw new Error('Health service unavailable');return calls.getPlatformHealth({});},
+      archiveAndDeletePrimaryData:()=>{if(!calls.archiveAndDeletePrimaryData)throw new Error('Primary purge service unavailable');return calls.archiveAndDeletePrimaryData({confirmation:'DELETE-PRIMARY-DATA'});},
       deleteWhere
     };
   }catch(error){console.error(error);window.MFCloud={ready:false,error};}

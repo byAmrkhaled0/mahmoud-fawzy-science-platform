@@ -61,6 +61,19 @@ for (const htmlFile of htmlFiles) {
 }
 if (!failures.some(x => x.startsWith('Duplicate IDs') || x.startsWith('Broken local reference'))) ok('HTML IDs and local references passed');
 
+const routeSources = [...htmlFiles.map(read), ...['assets/app.js','assets/admin.js','assets/v53-upgrades.js','assets/v56-fixes.js'].map(read)].join('\n');
+const localRoutes = [...new Set([...routeSources.matchAll(/['"`]([a-z][a-z0-9-]*\.html)(?:[?#][^'"`\s<]*)?/g)].map(match => match[1]))];
+for (const route of localRoutes) if (!fs.existsSync(path.join(root, route))) fail(`Broken local route: ${route}`);
+for (const match of read('sitemap.xml').matchAll(/<loc>([^<]+)<\/loc>/g)) {
+  const pathname = new URL(match[1]).pathname.replace(/^\//, '') || 'index.html';
+  if (!fs.existsSync(path.join(root, pathname))) fail(`Sitemap route has no page: ${pathname}`);
+}
+const packageVersion = JSON.parse(read('package.json')).version;
+for (const htmlFile of htmlFiles) {
+  for (const match of read(htmlFile).matchAll(/\?v=([0-9.]+)/g)) if (match[1] !== packageVersion) fail(`Stale asset version in ${htmlFile}: ${match[1]}`);
+}
+if (!failures.some(x => x.includes('route') || x.includes('Sitemap') || x.includes('asset version'))) ok(`All ${localRoutes.length} page routes, sitemap entries, and asset versions passed`);
+
 const buttonSources = [...htmlFiles, ...jsFiles.filter(file => file.startsWith('assets/'))].map(relative => ({ relative, source: read(relative) }));
 const combinedButtonSource = buttonSources.map(item => item.source).join('\n');
 const inlineHandlers = new Map();
@@ -102,8 +115,9 @@ if (!failures.some(x => x.includes('public direct-write') || x.includes('Cloud F
 const functionsSource = read('functions/index.js');
 const callableNames = [
   'getPortalStudent', 'createStudentAccess', 'createBooking', 'approveBooking', 'rejectBooking', 'getBookingStatus', 'createReview', 'recordClassProgress', 'registerTeacherPushToken',
-  'getExamDashboard', 'startExam', 'submitExam', 'prepareHomeworkUpload', 'registerHomeworkSubmission', 'reportClientError',
-  'createBackupNow', 'listAutomaticBackups', 'getBackupDownloadUrl', 'restoreAutomaticBackup', 'deleteStudentSafely'
+  'getExamDashboard', 'startExam', 'getExamSessionTiming', 'submitExam', 'prepareHomeworkUpload', 'registerHomeworkSubmission', 'reportClientError',
+  'createBackupNow', 'listAutomaticBackups', 'getBackupDownloadUrl', 'restoreAutomaticBackup', 'deleteStudentSafely',
+  'registerStudentPushToken', 'getAssignmentRoster', 'gradeHomeworkSubmission', 'getPlatformHealth', 'archiveAndDeletePrimaryData'
 ];
 for (const name of callableNames) {
   if (!functionsSource.includes(`exports.${name} = onCall`)) fail(`Missing callable function export: ${name}`);
@@ -136,10 +150,20 @@ if (!failures.some(x => x.startsWith('Missing callable') || x.includes('Schedule
 const adminSourceCode = read('assets/admin.js');
 const appSourceCode = read('assets/app.js');
 const fixesSourceCode = read('assets/v56-fixes.js');
+const primaryGradePattern = /رابعة ابتدائي|خامسة ابتدائي|سادسة ابتدائي/;
+// Server maintenance code intentionally names the retired primary grades so it
+// can archive and purge them. Only student/admin selectors count as active UI.
+const activeGradeSurfaces = [appSourceCode, adminSourceCode, read('assets/firebase-sync.js'), read('assets/v53-upgrades.js'), read('index.html')].join('\n');
+if (primaryGradePattern.test(activeGradeSurfaces)) fail('Primary-school grades are still exposed by an active platform surface');
+if (!functionsSource.includes('exports.archiveAndDeletePrimaryData') || !functionsSource.includes("createPlatformBackup('pre-primary-purge'")) fail('Safe primary-school archive and purge workflow is missing');
+if (!appSourceCode.includes("var GRADES = ['أولى إعدادي','تانية إعدادي','تالتة إعدادي','أولى ثانوي','تانية ثانوي','تالتة ثانوي']")) fail('Preparatory and secondary grade catalog is incomplete');
+if (!firebaseSyncSource.includes('filterPlatformGrades') || !functionsSource.includes('requireSupportedGrade')) fail('Removed grade filtering is not enforced in both client and server writes');
+if (!failures.some(x => x.includes('grade'))) ok('Primary-school grade removal and write validation passed');
 if (!adminSourceCode.includes("loadSiteData({fast:true})") || !adminSourceCode.includes('hydrateAdminRecords')) fail('Staged admin loading is missing');
 if (!appSourceCode.includes('staffCacheOnly') || !appSourceCode.includes('if(isStaffWorkspace())return;')) fail('Compact staff browser cache protection is missing');
 if (!fixesSourceCode.includes('showMoreAdminStudents') || !fixesSourceCode.includes('slice(0,adminStudentVisible)')) fail('Paginated student rendering is missing');
 if (!appSourceCode.includes('ensureQrScannerLibrary') || !appSourceCode.includes("loadQrScanner:()=>loadLazyScript('qr-scanner'")) fail('Cross-browser QR scanner fallback is missing');
+if (!adminSourceCode.includes('startAdminHtml5Qr') || !adminSourceCode.includes('Html5Qrcode.getCameras') || !adminSourceCode.includes('adminQrBoxSize') || !adminSourceCode.includes('attendanceQrStudentCode')) fail('Reliable admin QR attendance scanning is incomplete');
 for (const page of ['student.html','parent.html','teacher-login.html']) {
   if (!read(page).includes('assets/vendor/html5-qrcode-2.3.8.min.js')) fail(`QR scanner preload is missing from ${page}`);
 }
@@ -188,6 +212,7 @@ if (!/mf-science-v\d+[^"']*/.test(sw) || !sw.includes('/assets/site.bundle.css')
 if (/gstatic\.com|importScripts\(/.test(sw)) fail('Service worker must not depend on third-party startup scripts');
 if (!sw.includes("addEventListener('push'")) fail('Service worker push handler is missing');
 if (!sw.includes('criticalAssets') || !sw.includes('/assets/admin.bundle.js') || !sw.includes('fetch(request,{cache:"no-store"})')) fail('Critical deployment assets must bypass stale service-worker cache');
+if (!/request\.mode==="navigate"[\s\S]{0,220}fetch\(request,\{cache:"no-store"\}\)/.test(sw)) fail('Page refresh navigation can still return stale HTML');
 if (!read('vercel.json').includes('(firebase-config|firebase-sync|public.bundle|admin.bundle|site.bundle)')) fail('Vercel must disable caching for critical deployment bundles');
 const serviceWorkerRegistrationBlock=read('assets/app.js').match(/function registerServiceWorker\(\)[\s\S]*?function setupPWAInstall/)?.[0]||'';
 if (/controllerchange[\s\S]{0,500}location\.reload/.test(serviceWorkerRegistrationBlock)) fail('Service worker updates must not reload while Firebase IndexedDB transactions are active');
@@ -222,6 +247,7 @@ if (!functionsSource.includes('uniqueNumericCode') || !functionsSource.includes(
 if (!rules.includes('match /booking_status/{bookingCode}') || !rules.includes('allow read, create: if false;')) fail('Booking status documents must be server-only');
 if (!read('assets/admin.js').includes('renderSchedules') || !read('assets/admin.js').includes('startBookingNotifications')) fail('V55 schedule or booking notification UI is incomplete');
 if (!read('teacher-login.html').includes('firebase-messaging-compat.js') || !sw.includes("addEventListener('push'")) fail('Teacher background push notification wiring is incomplete');
+if (!read('student.html').includes('firebase-messaging-compat.js') || !functionsSource.includes('notifyStudentsOnExamWrite') || !functionsSource.includes("url:'/student.html'")) fail('Student push notification wiring is incomplete');
 if (!read('assets/admin.js').includes('MFCloud?.approveBooking') || !read('functions/index.js').includes('tx.delete(bookingRef)')) fail('Atomic booking approval and queue removal are incomplete');
 if (/مجموعة السبت والثلاثاء|مجموعة الأحد والأربعاء|مجموعة الاثنين والخميس|أونلاين متابعة/.test(read('index.html'))) fail('Static booking groups must not appear in the booking form');
 if (!failures.some(x => x.includes('PWA') || x.includes('Service worker') || x.includes('Mobile install'))) ok('Android and iPhone PWA installation checks passed');
@@ -234,6 +260,10 @@ if (!adminSource.includes('اشتراكات السنتر') || adminSource.includ
 if (!failures.some(x => x.includes('Admin v54 feature') || x.includes('subscription wording'))) ok('Academic-year, export, error-monitoring, and center-subscription checks passed');
 
 if (!adminSourceCode.includes('renderWarnings') || !adminSourceCode.includes('warningPhoneFilter') || !adminSourceCode.includes('sendAbsenceWarningWhatsApp')) fail('Absence warning workflow or filters are incomplete');
+if (!adminSourceCode.includes('openAssignmentTracking') || !adminSourceCode.includes('saveHomeworkGrade') || !functionsSource.includes('exports.getAssignmentRoster') || !functionsSource.includes('exports.gradeHomeworkSubmission')) fail('Detailed homework tracking and grading are incomplete');
+if (!adminSourceCode.includes('renderLectures') || !appSourceCode.includes('data-student-panel="lectures"') || !functionsSource.includes("db.collection('lectures')")) fail('Protected targeted lectures are incomplete');
+if (!adminSourceCode.includes('openExamVersions') || !firebaseSyncSource.includes("collection('versions')") || !rules.includes('match /exams/{id}/versions/{versionId}')) fail('Exam version history and restore are incomplete');
+if (!adminSourceCode.includes('renderPlatformHealth') || !functionsSource.includes('exports.getPlatformHealth')) fail('Platform health page is incomplete');
 if (!adminSourceCode.includes('renderStudentRequests') || !appSourceCode.includes('bindStudentTransferForms') || !functionsSource.includes('exports.createStudentTransferRequest') || !functionsSource.includes('exports.reviewStudentTransferRequest')) fail('Student transfer workflow is incomplete');
 if (!functionsSource.includes("require('./lib/assignment-schedule')") || !functionsSource.includes('assignmentSubmissionIsOpen') || !adminSourceCode.includes('name="publishAt"')) fail('Scheduled homework workflow is incomplete');
 if (!rules.includes('match /student_transfer_requests/{id}') || !rules.includes('match /assignments/{id} { allow read, write: if isTeacher(); }')) fail('Transfer request or scheduled-homework rules are incomplete');
@@ -241,7 +271,9 @@ if (!read('assets/v59.css').includes('.absence-warning-card') || !read('assets/v
 if (fs.existsSync(path.join(root,'online.html')) || fs.existsSync(path.join(root,'assets/online.js')) || /exports\.(?:getOnlineContentForStudent|recordLectureProgress)\b/.test(functionsSource)) fail('Online-study components were added to the center-only Mahmoud release');
 if (!failures.some(x => x.includes('workflow is incomplete') || x.includes('V59 responsive') || x.includes('Online-study'))) ok('Center-only V59 workflows and online exclusion passed');
 
-if (!adminSourceCode.includes("editAcademicExamV5949('${safe(item.id)}')") || !adminSourceCode.includes('تم تعديل الامتحان والوقت مستمر') || !adminSourceCode.includes('values.id=editId||')) fail('In-place running exam editing is incomplete');
+if (!adminSourceCode.includes("editAcademicExamV5949('${safe(item.id)}')") || !adminSourceCode.includes('تم تعديل الامتحان ونُشرت النسخة الجديدة للطلاب') || !adminSourceCode.includes('values.id=editId||')) fail('In-place running exam editing is incomplete');
+if (!adminSourceCode.includes('saveExamNow(savedExam)') || !firebaseSyncSource.includes('saveExam:saveExamDirect') || !functionsSource.includes('contentVersion')) fail('Focused exam publishing and versioning is incomplete');
+if (!appSourceCode.includes('refreshExamDashboardButton') || !appSourceCode.includes('startExamDashboardAutoRefresh') || !appSourceCode.includes("document.addEventListener('visibilitychange',refreshVisible)")) fail('Student exam dashboard live refresh is incomplete');
 if (!adminSourceCode.includes('إضافة سؤال تحت السؤال الحالي') || adminSourceCode.indexOf('id="${listId}" class="exam-questions-builder"') > adminSourceCode.indexOf("onclick=\"addExamQuestion('${listId}')\"")) fail('The unified exam add-question control is not below the question list');
 if (!read('assets/v60.css').includes('.exam-add-question-bottom') || !read('assets/v60.css').includes('.academic-content-row>.small-btn.primary')) fail('Unified academic exam mobile controls are incomplete');
 if (!failures.some(x => x.includes('running exam') || x.includes('add-question') || x.includes('academic exam mobile'))) ok('Unified academics exam editing and bottom question control passed');

@@ -17,7 +17,7 @@ assert.ok(academicStart >= 0 && academicEnd > academicStart, 'academic helpers m
 assert.ok(requestStart >= 0 && requestEnd > requestStart, 'request linking helpers must exist');
 
 const context = {
-  GRADES: ['رابعة ابتدائي', 'أولى إعدادي', 'تانية إعدادي', 'تالتة ثانوي'],
+  GRADES: ['أولى إعدادي', 'تانية إعدادي', 'تالتة إعدادي', 'أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'],
   adminData: {
     groups: [
       { id: 'group-1', name: 'مجموعة السبت', grade: 'أولى إعدادي', active: true },

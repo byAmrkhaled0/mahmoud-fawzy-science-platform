@@ -79,7 +79,11 @@ service cloud.firestore {
     // Homework is delivered to students only through the callable portal, which
     // enforces grade/group targeting and the scheduled publish time.
     match /assignments/{id} { allow read, write: if isTeacher(); }
+    // Lectures are never public Firestore documents. Students receive only
+    // their targeted rows through getPortalStudent after validating the code.
+    match /lectures/{id} { allow read, write: if isTeacher(); }
     match /exams/{id} { allow read, write: if isTeacher(); }
+    match /exams/{id}/versions/{versionId} { allow read, write: if isTeacher(); }
     match /student_transfer_requests/{id} {
       allow read, update, delete: if isTeacher();
       allow create: if false;
@@ -152,6 +156,7 @@ service cloud.firestore {
     match /deleted_students/{id} { allow read, write: if false; }
     match /backup_runs/{id} { allow read, write: if false; }
     match /staff_push_tokens/{id} { allow read, write: if false; }
+    match /student_push_tokens/{id} { allow read, write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }
