@@ -1,4 +1,4 @@
-const CACHE_NAME = "mf-science-v5961-exam-time-qr-fix";
+const CACHE_NAME = "mf-science-v5962-speed-exam-editor";
 const APP_SHELL = [
   "/", "/index.html", "/student.html", "/exams.html", "/materials.html",
   "/services.html", "/parent.html", "/reviews.html", "/privacy.html",

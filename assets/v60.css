@@ -338,3 +338,7 @@ html[data-theme="dark"] .admin-welcome h1{color:#ecf7f7}
     border-radius:20px!important;
   }
 }
+
+.admin-record-load-status{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding:12px 16px;background:var(--surface,#fff);font-weight:800;color:var(--muted,#51606f)}
+.admin-record-load-status.danger{border-color:#ef4444;color:#b91c1c}
+@media(max-width:640px){.admin-record-load-status{align-items:stretch;flex-direction:column}.admin-record-load-status .small-btn{width:100%}}

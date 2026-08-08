@@ -467,17 +467,37 @@ function normalizeAnswer(value) {
 function mcqCorrect(question, chosenIndex) {
   const index = Number(chosenIndex);
   if (!Number.isInteger(index) || index < 0 || index >= question.options.length) return false;
+  const explicit=Number(question.correctIndex);
+  if(question.correctIndex!==null&&question.correctIndex!==undefined&&question.correctIndex!==''&&Number.isInteger(explicit))return index===explicit;
   const chosen = question.options[index] || '';
   const label = question.optionLabels[index] || String(index + 1);
   const correct = String(question.answer || '').trim();
   if (!correct) return null;
-  const answerToken = (correct.match(/^([A-Da-dأإابجدهـه]|[1-4])/) || [])[1] || '';
+  const answerToken = (correct.match(/^([A-Da-dأإابجدهـه]|[1-4])(?:\s*[\)\.\-:：]|\s*$)/) || [])[1] || '';
   const normalized = normalizeAnswer(correct);
   return normalized === normalizeAnswer(label)
     || normalized === normalizeAnswer(chosen)
     || normalized === String(index + 1)
     || (answerToken && normalizeAnswer(answerToken) === normalizeAnswer(label));
 }
+
+function examQuestionList(exam = {}) {
+  if (!Array.isArray(exam.questions) || !exam.questions.length) return parseExamQuestions(exam.text || exam.questionsText || '');
+  return exam.questions.slice(0, 200).map(raw => {
+    const source=raw&&typeof raw==='object'?raw:{},essay=source.type==='essay';
+    const trueFalse=source.type==='truefalse';
+    const options=essay?[]:(trueFalse?['صح','غلط']:(Array.isArray(source.options)?source.options:[]).slice(0,8).map(value=>text(value,700)));
+    const explicit=source.correctIndex!==null&&source.correctIndex!==undefined&&source.correctIndex!==''?Number(source.correctIndex):null;
+    const correctIndex=Number.isInteger(explicit)&&explicit>=0&&explicit<options.length?explicit:null;
+    return {
+      type:essay?'essay':'mcq',question:text(source.question||source.content,1500),options,
+      optionLabels:(Array.isArray(source.optionLabels)&&source.optionLabels.length?source.optionLabels:['أ','ب','ج','د']).slice(0,options.length).map(value=>text(value,10)),
+      answer:correctIndex===null?text(source.answer,700):text(options[correctIndex],700),correctIndex,points:positiveExamScore(source.points,1)
+    };
+  }).filter(question=>question.question&&(question.type==='essay'||question.options.length>=2));
+}
+
+function examCorrectAnswer(question){const index=Number(question.correctIndex);return Number.isInteger(index)&&index>=0?text(question.options?.[index],1000):text(question.answer,1000);}
 
 function portalResponse(data, attempts, records = {}) {
   return {
@@ -576,19 +596,27 @@ async function attemptSummaries(studentCode) {
 
 async function studentRecords(studentCode, student = {}) {
   const normalized = normalizeCode(studentCode);
-  const load = async collection => {
-    const snap = await db.collection(collection).where('studentCode', '==', normalized).limit(250).get().catch(() => null);
-    return snap ? snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
+  const load = async (collection,orderBy) => {
+    const base=db.collection(collection).where('studentCode','==',normalized);
+    let snap=await base.orderBy(orderBy,'desc').limit(250).get().catch(()=>null);
+    if(!snap)snap=await base.limit(250).get().catch(()=>null);
+    return snap?snap.docs.map(doc=>({id:doc.id,...doc.data()})):[];
   };
   const [attendance, grades, homeworks, recitations, assignmentSnap, lectureSnap] = await Promise.all([
-    load('attendance'), load('grades'), load('homework_submissions'), load('recitations'),
+    load('attendance','date'), load('grades','date'), load('homework_submissions','submittedAt'), load('recitations','date'),
     db.collection('assignments').where('active','==',true).limit(250).get().catch(()=>null),
     db.collection('lectures').where('active','==',true).limit(250).get().catch(()=>null)
   ]);
   const byDate = rows => rows.sort((a, b) => String(a.date || a.submittedAt || a.createdAt || '').localeCompare(String(b.date || b.submittedAt || b.createdAt || '')));
   const assignments=assignmentSnap?assignmentSnap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(item=>
     assignmentIsReleased(item) && learningTargetMatchesStudent(item, student)
-  ).map(item=>({...item,submissionClosed:assignmentDueDatePassed(item,cairoDateKey(new Date()))})).slice(-100):[];
+  ).map(item=>({
+    id:text(item.id,100),title:text(item.title,200),notes:text(item.notes,2000),grade:text(item.grade,80),group:text(item.group,100),
+    academicYear:text(item.academicYear,20),term:text(item.term,40),dueDate:text(item.dueDate,30),publishAt:item.publishAt||'',
+    questions:Array.isArray(item.questions)?item.questions.slice(0,100).map(question=>text(question,2500).split('\n').filter(line=>!/^(?:الإجابة|الاجابة|الدرجة)\s*:/i.test(line.trim())).join('\n').trim()).filter(Boolean):[],
+    fileUrl:safePublicUrl(item.fileUrl),fileName:text(item.fileName,220),fileType:text(item.fileType,100),
+    submissionClosed:assignmentDueDatePassed(item,cairoDateKey(new Date()))
+  })).slice(-100):[];
   const lectures=lectureSnap?lectureSnap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(item=>
     assignmentIsReleased(item) && learningTargetMatchesStudent(item, student)
   ).map(item=>({
@@ -663,11 +691,13 @@ exports.getPortalStudent = onCall(CALLABLE_OPTIONS, async request => {
   const studentCode = found.data.studentCode || found.data.code;
   const canonicalSnap = await db.collection('students').doc(cleanDocId(normalizeCode(studentCode))).get().catch(() => null);
   const student = canonicalSnap?.exists ? { ...found.data, ...canonicalSnap.data() } : found.data;
+  const transferBase=db.collection('student_transfer_requests').where('studentCode','==',normalizeCode(studentCode));
+  const transferPromise=mode==='student'?transferBase.orderBy('createdAt','desc').limit(20).get().catch(()=>transferBase.limit(20).get().catch(()=>null)):Promise.resolve(null);
   const [attempts, records, groupSnap, transferSnap, assignmentSnap] = await Promise.all([
     attemptSummaries(studentCode),
     studentRecords(studentCode, student),
     mode === 'student' ? db.collection('groups').limit(300).get().catch(() => null) : Promise.resolve(null),
-    mode === 'student' ? db.collection('student_transfer_requests').where('studentCode', '==', normalizeCode(studentCode)).limit(20).get().catch(() => null) : Promise.resolve(null),
+    transferPromise,
     db.collection('assignments').where('active', '==', true).limit(250).get().catch(() => null)
   ]);
   const matchingTransferSchedules = groupSnap
@@ -1295,6 +1325,7 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
     const [attempts, records] = await Promise.all([attemptSummaries(studentCode), studentRecords(studentCode)]);
     return { student: portalResponse(found.data, attempts, records), exams: [], serverNow: Date.now(), dashboardVersion: Date.now() };
   }
+  // Keep legacy exams that predate the explicit `active` field visible.
   const snap = await db.collection('exams').get();
   const now = Date.now();
   const exams = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
@@ -1314,7 +1345,7 @@ exports.getExamDashboard = onCall(CALLABLE_OPTIONS, async request => {
       pdfUrl: safePublicUrl(exam.pdfUrl || exam.examPdfUrl),
       pdfName: text(exam.pdfName || exam.examPdfName, 220),
       allowRetake: exam.allowRetake === true,
-      questionCount: Number(exam.questionCount || parseExamQuestions(exam.text || exam.questionsText).length),
+      questionCount: Number(exam.questionCount || examQuestionList(exam).length),
       maxScore: positiveExamScore(exam.maxScore, 100),
       contentVersion: Number(exam.contentVersion || 0),
       availability: examAvailability(exam, now)
@@ -1345,7 +1376,7 @@ exports.startExam = onCall(CALLABLE_OPTIONS, async request => {
   if (!examMatchesStudent(exam, found.data)) {
     throw new HttpsError('permission-denied', 'هذا الامتحان غير مخصص لصفك أو مجموعتك أو عامك الدراسي.');
   }
-  const questions = examQuestionsWithScores(parseExamQuestions(exam.text || exam.questionsText || ''), exam.maxScore);
+  const questions = examQuestionsWithScores(examQuestionList(exam), exam.maxScore);
   if (!questions.length) throw new HttpsError('failed-precondition', 'الامتحان لا يحتوي على أسئلة صالحة.');
   if (questions.length > 200) throw new HttpsError('failed-precondition', 'عدد أسئلة الامتحان أكبر من الحد المسموح.');
 
@@ -1507,7 +1538,7 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
   };
   const questions = examQuestionsWithScores(Array.isArray(session.questions) && session.questions.length
     ? session.questions
-    : parseExamQuestions(exam.text || exam.questionsText || ''), session.maxScore || exam.maxScore);
+    : examQuestionList(exam), session.maxScore || exam.maxScore);
   if (!questions.length) throw new HttpsError('failed-precondition', 'تعذر قراءة أسئلة الامتحان.');
   if (Object.keys(rawAnswers).length > questions.length + 5) throw new HttpsError('invalid-argument', 'عدد الإجابات غير صالح.');
 
@@ -1537,7 +1568,7 @@ exports.submitExam = onCall(CALLABLE_OPTIONS, async request => {
         correct,
         points,
         awardedScore: correct === true ? points : 0,
-        correctAnswer: question.answer,
+        correctAnswer: examCorrectAnswer(question),
         options: question.options,
         optionLabels: question.optionLabels
       });
@@ -2056,7 +2087,7 @@ exports.getPlatformHealth = onCall(CALLABLE_OPTIONS, async request => {
   const recentErrors = errors ? errors.docs.map(doc=>({ id:doc.id,message:text(doc.data().message,500),page:text(doc.data().page,500),createdAt:firestoreMillis(doc.data().createdAt)?new Date(firestoreMillis(doc.data().createdAt)).toISOString():'' })) : [];
   const latestBackup = backups && backups.docs[0] ? backups.docs[0].data() : null;
   return {
-    release:'59.6.1', serverNow:new Date().toISOString(), latencyMs:Date.now()-started,
+    release:'59.6.2', serverNow:new Date().toISOString(), latencyMs:Date.now()-started,
     services:{ functions:{ok:true,message:'Cloud Functions تعمل'}, database, storage, notifications:{ok:Boolean(tokens),message:tokens?`${tokens.size} جهاز طالب مسجل`:'تعذر فحص الإشعارات'} },
     latestBackup:latestBackup?{name:text(latestBackup.name,500),createdAt:firestoreMillis(latestBackup.createdAt)?new Date(firestoreMillis(latestBackup.createdAt)).toISOString():''}:null,
     recentErrors

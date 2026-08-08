@@ -236,8 +236,10 @@
       if(options.full===true)await markLeaderboardDirty('full-sync');
     }
 
-    async function getDocs(collection,limit){
-      const ref=limit?db.collection(collection).limit(limit):db.collection(collection);
+    async function getDocs(collection,limit,options={}){
+      let ref=db.collection(collection);
+      if(options.orderBy)ref=ref.orderBy(options.orderBy,options.direction==='asc'?'asc':'desc');
+      if(limit)ref=ref.limit(limit);
       const snap=await ref.get();return snap.docs.map(doc=>({id:doc.id,...doc.data()}));
     }
     async function getSettings(){const snap=await platformSettingsDoc.get().catch(()=>null);return snap?.exists?snap.data():{};}
@@ -261,7 +263,7 @@
 
     async function loadStaffCoreCollections(){
       const [students,bookings,materials,questions,exams,reviews,groups,assignments,lectures,payments,settings]=await Promise.all([
-        getDocs('students').catch(()=>[]),getDocs('bookings').catch(()=>[]),getDocs('materials').catch(()=>[]),getDocs('questions').catch(()=>[]),
+        getDocs('students').catch(()=>[]),getDocs('bookings',500,{orderBy:'createdAt'}).catch(()=>getDocs('bookings',500).catch(()=>[])),getDocs('materials').catch(()=>[]),getDocs('questions').catch(()=>[]),
         getDocs('exams').catch(()=>[]),getDocs('reviews').catch(()=>[]),getDocs('groups').catch(()=>[]),getDocs('assignments').catch(()=>[]),getDocs('lectures').catch(()=>[]),
         getDocs('payments',3000).catch(()=>[]),getSettings().catch(()=>({}))
       ]);
@@ -289,6 +291,38 @@
       grades.forEach(item=>seedFingerprint('grades',cleanDocId(item.id),item));
       recitations.forEach(item=>seedFingerprint('recitations',cleanDocId(item.id),item));
       return {attempts,grades,attendance,recitations,homeworks,studentTransferRequests};
+    }
+
+    const staffRecordSources=Object.freeze({
+      attempts:{collection:'exam_attempts',orderBy:'submittedAt'},
+      grades:{collection:'grades',orderBy:'date'},
+      attendance:{collection:'attendance',orderBy:'date'},
+      recitations:{collection:'recitations',orderBy:'date'},
+      homeworks:{collection:'homework_submissions',orderBy:'submittedAt'},
+      studentTransferRequests:{collection:'student_transfer_requests',orderBy:'createdAt'}
+    });
+
+    async function loadStaffRecordPage(type,options={}){
+      const source=staffRecordSources[type];
+      if(!source)throw new Error('Unknown staff record type');
+      const pageSize=Math.max(25,Math.min(250,Number(options.pageSize||200)));
+      let mode=options.mode==='document'?'document':'ordered';
+      const run=async queryMode=>{
+        let query=db.collection(source.collection);
+        query=queryMode==='ordered'
+          ?query.orderBy(source.orderBy,'desc')
+          :query.orderBy(firebase.firestore.FieldPath.documentId(),'desc');
+        if(options.cursor)query=query.startAfter(options.cursor);
+        const snap=await query.limit(pageSize).get();
+        const rows=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+        rows.forEach(item=>seedFingerprint(source.collection,cleanDocId(item.id),item));
+        return {type,rows,cursor:snap.docs[snap.docs.length-1]||null,done:snap.size<pageSize,mode:queryMode};
+      };
+      try{return await run(mode);}catch(error){
+        if(options.cursor||mode==='document')throw error;
+        console.warn(`staff-record-index-${type}`,error);
+        return run('document');
+      }
     }
 
     function mergeStaffRecords(core,records){
@@ -492,6 +526,7 @@
         return data;
       },
       loadStaffRecords:async()=>{const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');return loadStaffRecordCollections();},
+      loadStaffRecordPage:async(type,options={})=>{const profile=await getCurrentStaffProfile();if(!profile?.allowed)throw new Error('Not authorized');return loadStaffRecordPage(type,options);},
       saveSiteData:async(payload,options={})=>syncPayloadToCollections(payload,options),
       saveStudent:async student=>{if(!platformGradeAllowed(student?.grade)||!String(student?.grade||'').trim())throw new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية');const ops=[];pushStudentOps(ops,student);await commitOperations(ops);},
       saveGroup:async group=>{const id=cleanDocId(group?.id||'');if(!id)throw new Error('Invalid group');if(!platformGradeAllowed(group?.grade))throw new Error('اختر صفًا من المرحلة الإعدادية أو الثانوية');const profile=await getCurrentStaffProfile();if(!profile?.allowed||!['admin','teacher'].includes(profile.role))throw new Error('Not authorized');await db.collection('groups').doc(id).set({...group,id,updatedAt:serverTime()},{merge:true});return {...group,id};},

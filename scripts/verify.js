@@ -159,7 +159,7 @@ if (!functionsSource.includes('exports.archiveAndDeletePrimaryData') || !functio
 if (!appSourceCode.includes("var GRADES = ['أولى إعدادي','تانية إعدادي','تالتة إعدادي','أولى ثانوي','تانية ثانوي','تالتة ثانوي']")) fail('Preparatory and secondary grade catalog is incomplete');
 if (!firebaseSyncSource.includes('filterPlatformGrades') || !functionsSource.includes('requireSupportedGrade')) fail('Removed grade filtering is not enforced in both client and server writes');
 if (!failures.some(x => x.includes('grade'))) ok('Primary-school grade removal and write validation passed');
-if (!adminSourceCode.includes("loadSiteData({fast:true})") || !adminSourceCode.includes('hydrateAdminRecords')) fail('Staged admin loading is missing');
+if (!adminSourceCode.includes("loadSiteData({fast:true})") || !adminSourceCode.includes('ensureAdminSectionRecords') || !firebaseSyncSource.includes('loadStaffRecordPage')) fail('Staged admin loading is missing');
 if (!appSourceCode.includes('staffCacheOnly') || !appSourceCode.includes('if(isStaffWorkspace())return;')) fail('Compact staff browser cache protection is missing');
 if (!fixesSourceCode.includes('showMoreAdminStudents') || !fixesSourceCode.includes('slice(0,adminStudentVisible)')) fail('Paginated student rendering is missing');
 if (!appSourceCode.includes('ensureQrScannerLibrary') || !appSourceCode.includes("loadQrScanner:()=>loadLazyScript('qr-scanner'")) fail('Cross-browser QR scanner fallback is missing');
